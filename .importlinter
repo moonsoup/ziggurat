@@ -1,0 +1,35 @@
+# Ziggurat's own contract, enforced on Ziggurat.
+#
+# A ziggurat is a stepped structure: every level rests on the one below it and
+# never the reverse. That is the whole idea the tool exists to check, so it
+# would be a poor advertisement for it to be built any other way.
+#
+#   tier 0  findings   the shared vocabulary. Depends on nothing.
+#   tier 1  analysers  each looks at ONE thing and returns findings.
+#                      They do not know about each other.
+#   tier 2  report     composes analysers. Knows them; they do not know it.
+#   tier 3  bin        one entry point. Knows report.
+#
+# Run: lint-imports
+
+[importlinter]
+root_package = ziggurat
+
+[importlinter:contract:tiers]
+name = Levels rest on the level below, never the reverse
+type = layers
+# Only what exists today. A contract written for the codebase you WANT fails
+# on day one against the code it was pointed at, and a check that is red from
+# the start teaches everyone to ignore it. Levels are added here as the modules
+# that fill them are built.
+layers =
+    ziggurat.report
+    ziggurat.structure | ziggurat.history
+    ziggurat.findings
+
+[importlinter:contract:analysers-independent]
+name = Analysers do not know about each other
+type = independence
+modules =
+    ziggurat.structure
+    ziggurat.history
