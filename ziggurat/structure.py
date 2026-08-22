@@ -15,11 +15,13 @@ it:
     scattered paths      one data directory named in every module that touched
                          it, so it could not be relocated at all
 
-Neither count is written out. The number of checks said "three" for a while
-after there were four; the number of modules was written as "twenty-one" while
-the measurement said 17 before the fix and 22 after, so it matched nothing at
-any point. Both are the exact failure this tool exists to report, committed
-inside the tool that reports it.
+Neither count is written out, and the reason is worth the space. The number of
+checks said "three" for a while after there were four. The number of modules
+was written as "twenty-one", then corrected to "22", and a later verification
+measured 21 -- because every change to what the checker can SEE changes what
+it counts, so any number written in prose is stale by the next commit. Three
+commits in a row shipped a comment that disagreed with its own code this way.
+A measurement belongs in the output of a run, never in a sentence about it.
 """
 
 from __future__ import annotations
@@ -41,9 +43,20 @@ SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist",
              ".next", ".nuxt", ".svelte-kit", ".turbo", ".parcel-cache",
              ".cache", "coverage", ".gradle", ".terraform",
              # A git worktree is a full second copy of the repo. Counting it
-             # doubles every file, which put six of one project's seven
-             # findings over the threshold on two real files apiece.
-             "worktrees"}
+             # doubled every file, which put ALL SEVEN of one project's
+             # scattered-path findings over the threshold -- their real counts
+             # were 2, 2, 2, 3, 3, 3 and 5, every one below the bar. Recorded
+             # as "six of seven" for a while, copied from the issue rather
+             # than re-measured.
+             }
+
+#: Worktrees, excluded by PATH rather than by name. A bare `worktrees` in
+#: SKIP_DIRS silences any project that ships a package called that, since
+#: SKIP_DIRS matches a single path component wherever it appears. Leaving it
+#: to gitignore is not enough either: it works where a project ignores
+#: `.claude/` and fails silently where it does not. The pattern is the thing
+#: actually meant.
+SKIP_PATHS = ((".claude", "worktrees"),)
 
 SOURCE_SUFFIXES = {".py", ".sh", ".js", ".ts", ".rb", ".go", ".java", ".kt"}
 
@@ -125,6 +138,12 @@ NAVIGATION = frozenset({".", "..", "./", "../", "/"})
 #: method -- os.path.join(a, b), p.joinpath(c). Everything else called on an
 #: object takes options, not paths.
 JOINING = frozenset({"join", "joinpath"})
+
+#: Dictionary lookups that wear a method's clothes. `d["data"]` is plainly a
+#: lookup and was excluded; `d.get("data")` is a call argument and was not,
+#: which inflated two projects' counts by one file each while the subscript
+#: beside it was correctly ignored.
+LOOKUPS = frozenset({"get", "pop", "setdefault", "getattr", "getenv"})
 
 #: Argparse destinations whose default is a path. An argparse default is the
 #: namer nobody finds when relocating, because it reads as configuration.
@@ -259,43 +278,71 @@ def _is_test(path: Path) -> bool:
     return name.startswith("test_") or "_test." in name or ".test." in name
 
 
-def _tracked(root: Path) -> set | None:
-    """What git says belongs to this project, or None if git cannot say.
+def _ignored(root: Path) -> set | None:
+    """What git says does NOT belong to this project, or None if it cannot say.
 
-    The best available definition of "the project's own source". A directory
-    walk cannot tell a module from a build artefact or from a second copy of
-    the whole repo sitting in `.claude/worktrees/`, and both were counted:
-    ten of thirty-nine findings across a forty-two project sweep were noise
-    from exactly that, concentrated enough to make two projects look far
-    worse than they were.
+    ASK WHAT IS IGNORED, NOT WHAT IS TRACKED. The first version of this asked
+    `git ls-files` and scanned only what came back, which is a different
+    question with a much worse answer: it makes UNCOMMITTED SOURCE INVISIBLE.
 
-    Returns None rather than an empty set when git is unavailable, the
-    directory is not a repository, or nothing is tracked -- the walk is the
-    fallback in every one of those cases, because scanning nothing is a worse
-    answer than scanning too much.
+    Measured across 42 projects: 130 files vanished, 88 of them ordinary
+    source somebody had written and not yet committed. One project's finding
+    -- a hardcoded VPS address in four files -- was cut to two, because two of
+    the four were uncommitted. A checker that reports half a number is worse
+    than one that reports nothing, and this tool's own README says the number
+    IS the measurement. Newly written code is also the code most worth
+    checking; a checker blind to it is blind exactly where it is needed.
+
+    Ignored files are what the walk should skip: build output, `.next`
+    bundles, vendored copies. That set answers the question `SKIP_DIRS` was
+    guessing at, without guessing.
+
+    Returns None when git cannot answer, when the directory is not a
+    repository, or when it belongs to an enclosing repository rather than
+    having one of its own -- that last case matters: a project sitting inside
+    a parent checkout would otherwise be judged by the parent's index and get
+    partial visibility with nothing to signal it.
     """
     try:
+        top = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+            capture_output=True, timeout=30, check=False)
+        if top.returncode != 0:
+            return None
+        where = top.stdout.decode("utf-8", "replace").strip()
+        if not where or Path(where).resolve() != root.resolve():
+            # A subdirectory of some other repository. Its index describes a
+            # tree this is only part of, so it cannot say what belongs here.
+            return None
         done = subprocess.run(
-            ["git", "-C", str(root), "ls-files", "-z"],
+            ["git", "-C", str(root), "ls-files", "-z", "--others", "--ignored",
+             "--exclude-standard", "--directory"],
             capture_output=True, timeout=30, check=False)
     except (OSError, subprocess.SubprocessError):
         return None
     if done.returncode != 0:
         return None
     names = [n for n in done.stdout.decode("utf-8", "replace").split("\0") if n]
-    if not names:
-        return None
     return {(root / n).resolve() for n in names}
 
 
 def _sources(root: Path):
-    tracked = _tracked(root)
+    ignored = _ignored(root) or set()
     for path in root.rglob("*"):
         if not path.is_file() or path.suffix not in SOURCE_SUFFIXES:
             continue
         if set(path.parts) & SKIP_DIRS:
             continue
-        if tracked is not None and path.resolve() not in tracked:
+        parts = path.parts
+        if any(any(parts[i:i + len(run)] == run
+                   for i in range(len(parts) - len(run) + 1))
+               for run in SKIP_PATHS):
+            continue
+        # Ignored itself, or inside an ignored directory. `--directory`
+        # collapses a whole ignored tree to one entry, so the parents are
+        # checked rather than the leaf.
+        here = path.resolve()
+        if here in ignored or any(p in ignored for p in here.parents):
             continue
         yield path
 
@@ -534,6 +581,25 @@ def _python_path_strings(text: str) -> set:
             for side in (node.left, node.right):
                 take(side)
 
+    # UNAMBIGUOUS FILES, WHEREVER THEY SIT.
+    #
+    # Everything above asks what a string is HANDED TO, which is the right
+    # question for a bare word: nothing about `records` says it is a
+    # directory. But `records/eye.jsonl` says so by itself -- a separator and
+    # a data suffix is a path in a return, in a list, as a dict value, or
+    # anywhere else, and no context is needed to tell.
+    #
+    # Without this the syntax-reading pass was strictly WORSE than the regex
+    # it replaced for these forms. Measured: a real finding lost on a real
+    # tree, `docs/` named across four modules from inside a list of candidate
+    # files, and one file lost on this tool's own reference tree from
+    # `Path(args.restore or f"records/{serial}.sh")`.
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Constant, ast.JoinedStr)):
+            literal = _literal_of(node)
+            if literal and "/" in literal and _recognisable_file(literal):
+                take(node)
+
     return found
 
 
@@ -577,6 +643,30 @@ def _python_bare_strings(text: str) -> set:
         if x == "pending"       a comparison operand
         raise E("no records")   an exception's message
 
+    COLLECT BROADLY, EXCLUDE PRECISELY -- which is the opposite of the first
+    attempt and the reason this was rewritten twice. That version collected
+    only call arguments and assignment values, on the theory that a path is
+    handed to something. It is not: a path is just as much a path in a list of
+    candidate files, in a `return`, in a parameter default or as a dict value.
+    Measured, it lost a real finding on a real tree -- `docs/` named in four
+    of one project's modules, every one of them inside
+    `CONTEXT = ["CLAUDE.md", "docs/product-brief.md"]` -- and the exclusions
+    it did carry were dead code, because a dict key was never a candidate to
+    begin with.
+
+    So every string in the file is a candidate, minus the positions where a
+    string cannot be naming a directory:
+
+        d["genes"]              a subscript -- a lookup
+        {"role": "user"}        a dict KEY (values are kept: they can be paths)
+        if x == "pending"       a comparison operand
+        raise E("no records")   an exception's message
+        body.get("data")        a dict lookup wearing a method's clothes
+
+    That last one is why this list is not merely "not a call argument".
+    `.get("data")` IS a call argument, and it inflated two projects' counts by
+    a file each while `d["data"]` next to it was correctly ignored.
+
     Nothing here is evidence on its own. It is only ever consulted for heads
     the project has ALREADY proved to be directories.
     """
@@ -593,27 +683,35 @@ def _python_bare_strings(text: str) -> set:
             for key in node.keys:
                 if key is not None:
                     skip.add(id(key))
+            # A dict VALUE can be a path -- `{"eye": "records/eye.jsonl"}` is
+            # a namer like any other, and dropping the whole dict lost it.
+            # A BARE word as a dict value is almost always a label:
+            # `{"role": "user"}` reported `user/` across six files. So a value
+            # is kept when it carries a separator and dropped when it is only
+            # a word -- the same trade the weak option words make, and for the
+            # same reason: nothing about the string `user` says which it is.
+            for value in node.values:
+                literal = _literal_of(value)
+                if literal and "/" not in literal and "\\" not in literal:
+                    skip.add(id(value))
         elif isinstance(node, ast.Compare):
             for side in [node.left, *node.comparators]:
                 skip.add(id(side))
         elif isinstance(node, ast.Raise):
             for child in ast.walk(node):
                 skip.add(id(child))
+        elif isinstance(node, ast.Call) and node.args:
+            name = _call_name(node)
+            if (isinstance(node.func, ast.Attribute)
+                    and name in LOOKUPS):
+                skip.add(id(node.args[0]))
 
     found: set = set()
     for node in ast.walk(tree):
-        candidates = []
-        if isinstance(node, ast.Call):
-            candidates = [*node.args,
-                          *(kw.value for kw in node.keywords)]
-        elif isinstance(node, ast.Assign):
-            candidates = [node.value]
-        elif isinstance(node, ast.AnnAssign) and node.value is not None:
-            candidates = [node.value]
-        for child in candidates:
-            if id(child) in skip:
-                continue
-            literal = _literal_of(child)
+        if id(node) in skip:
+            continue
+        if isinstance(node, (ast.Constant, ast.JoinedStr)):
+            literal = _literal_of(node)
             if literal:
                 found.add(literal)
     return found
@@ -664,7 +762,19 @@ def _path_head(literal: str) -> str:
     directory a forward slash does.
     """
     literal = literal.replace("\\", "/")
-    if literal.startswith("//"):
+    # A GLOB IS NOT A NAME. Collecting unambiguous file literals wherever they
+    # sit picked up `*/CLAUDE.md` and reported `*/ is written into 8 files` --
+    # eight modules that share a search pattern, not a directory anyone could
+    # relocate. `?` and `[` are the other two ways to write one.
+    if any(ch in literal.split("/")[0] for ch in "*?["):
+        return ""
+    # `~` is the home directory, so `~/` as a head is every home-relative path
+    # in the project lumped together and no directory at all. Treated like an
+    # absolute path -- the parent IS the idea being repeated -- so
+    # `~/.claude/settings.json` reports `~/.claude` and not `~`.
+    if literal.startswith("~/"):
+        parent = literal.rsplit("/", 1)[0]
+        return parent if parent != "~" else ""
         # `//cdn.example.com/x.js` is an address, not an absolute path.
         return ""
     if literal.startswith("/"):
@@ -690,10 +800,14 @@ def _scattered_paths(files: list, root: Path, report: Report) -> None:
 
     The second is the harder one and the one a literal-only check cannot see.
     Measured on the project that prompted this: `records/eye.jsonl` appears in
-    8 files, which is worth knowing; `records/` appears in 22 across 40
-    distinct paths, which is why the directory could not be moved at all.
-    (17 across 33 stood here for a while: the pre-rework undercount, left
-    behind by the commit whose own message called it an undercount.)
+    a handful of files, which is worth knowing; `records/` in far more of
+    them across many more distinct paths, which is why the directory could not
+    be moved at all.
+
+    No figures here on purpose. This docstring has carried three different
+    pairs -- 17/33, then 22/40, then a verification measuring 21/37 -- and all
+    three were honest measurements of different versions of this code. What
+    the check can see changes what it counts, so the count belongs in a run.
     """
     by_literal: dict = {}
     by_head: dict = {}

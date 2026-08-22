@@ -163,3 +163,140 @@ def test_framework_build_output_is_not_source(tmp_path) -> None:
         f"packages/web/.next/static/chunk{i}.js":
         f'a = "/public/robots{i}.txt"\n' for i in range(8)})
     assert findings(root) == []
+
+
+# --- F1: the regression the git filter introduced ---------------------------
+
+def test_uncommitted_source_is_still_scanned(tmp_path) -> None:
+    """The worst regression of the lot, and it had no test at all.
+
+    Scanning only `git ls-files` made uncommitted source invisible. Measured
+    across 42 projects: 130 files vanished, 88 of them ordinary source
+    somebody had written and not yet committed -- and one project's hardcoded
+    VPS address, named in four files, was reported as two. Newly written code
+    is also the code most worth checking.
+    """
+    import subprocess
+
+    files = {f"m{i}.py": f'p = Path("records/a{i}.jsonl")\n' for i in range(5)}
+    files["committed.py"] = "x = 1\n"
+    root = project(tmp_path, files)
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "add", "committed.py"], cwd=root, check=True)
+
+    found = findings(root)
+    assert any("5 files" in f.summary for f in found), (
+        f"uncommitted source went unscanned: {found}")
+
+
+def test_gitignored_output_is_still_skipped(tmp_path) -> None:
+    """The capability the git filter was added FOR must survive the fix."""
+    import subprocess
+
+    files = {".gitignore": ".next/\n"}
+    files.update({f".next/chunk{i}.js": f'a = "/public/robots{i}.txt"\n'
+                  for i in range(8)})
+    root = project(tmp_path, files)
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    assert findings(root) == []
+
+
+def test_a_project_inside_another_repo_is_not_judged_by_the_parent(
+        tmp_path) -> None:
+    """A directory with no .git of its own resolves to the enclosing
+    repository, whose index describes a tree this is only part of. It would
+    get partial visibility with nothing to signal it."""
+    import subprocess
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    inner = tmp_path / "sub"
+    files = {f"sub/m{i}.py": f'p = Path("records/a{i}.jsonl")\n' for i in range(5)}
+    project(tmp_path, files)
+    assert any("5 files" in f.summary for f in findings(inner)), (
+        "judged by the parent repo's index, which does not describe it")
+
+
+# --- F2: what the AST pass dropped ------------------------------------------
+
+def test_a_path_in_a_list_still_names_a_directory(tmp_path) -> None:
+    """Cost a real finding on a real tree: `docs/` named in four modules,
+    every one inside CONTEXT = ["CLAUDE.md", "docs/product-brief.md"]."""
+    files = {"real.py": 'p = Path("docs/a.md")\n'}
+    files.update({f"m{i}.py": f'CONTEXT = ["README.md", "docs/brief{i}.md"]\n'
+                  for i in range(5)})
+    root = project(tmp_path, files)
+    assert any("docs" in f.summary for f in findings(root)), findings(root)
+
+
+def test_a_returned_path_still_names_a_directory(tmp_path) -> None:
+    root = project(tmp_path, {
+        f"m{i}.py": f'def where():\n    return "records/a{i}.jsonl"\n'
+        for i in range(5)})
+    assert any("records" in f.summary for f in findings(root)), findings(root)
+
+
+def test_a_default_parameter_still_names_a_directory(tmp_path) -> None:
+    files = {"real.py": 'p = Path("records/x.jsonl")\n'}
+    files.update({f"m{i}.py": f'def load(root="records", n={i}):\n    pass\n'
+                  for i in range(5)})
+    root = project(tmp_path, files)
+    assert any("records" in f.summary for f in findings(root)), findings(root)
+
+
+def test_a_dict_value_that_is_a_path_still_counts(tmp_path) -> None:
+    root = project(tmp_path, {
+        f"m{i}.py": f'STREAMS = {{"eye": "records/eye{i}.jsonl"}}\n'
+        for i in range(5)})
+    assert any("records" in f.summary for f in findings(root)), findings(root)
+
+
+def test_an_fstring_inside_a_larger_expression_still_counts(tmp_path) -> None:
+    """`Path(args.restore or f"records/{serial}.sh")` -- real code, and the
+    single file the AST pass lost on the tool's own reference tree."""
+    root = project(tmp_path, {
+        f"m{i}.py": f'p = Path(args.out or f"records/x{i}-{{n}}.sh")\n'
+        for i in range(5)})
+    assert any("records" in f.summary for f in findings(root)), findings(root)
+
+
+# --- F5: the lookup wearing a method's clothes ------------------------------
+
+def test_dict_get_is_a_lookup_not_a_path(tmp_path) -> None:
+    """`d["data"]` was excluded and `d.get("data")` was not, so two projects'
+    counts were inflated by a file each while the subscript beside them was
+    correctly ignored."""
+    files = {"real.py": 'p = Path("data/raw.csv")\n'}
+    files.update({f"api{i}.py": 'rows = response.get("data")\n' for i in range(5)})
+    root = project(tmp_path, files)
+    assert not any("6 files" in f.summary and "data" in f.summary
+                   for f in findings(root)), findings(root)
+
+
+def test_a_package_called_worktrees_is_not_silenced(tmp_path) -> None:
+    """A bare `worktrees` in SKIP_DIRS matches a single path component
+    wherever it appears, so it would silence a project that ships a package
+    by that name. The pattern actually meant is `.claude/worktrees`."""
+    root = project(tmp_path, {
+        f"worktrees/m{i}.py": f'p = Path("records/a{i}.jsonl")\n'
+        for i in range(5)})
+    assert any("records" in f.summary for f in findings(root)), findings(root)
+
+
+def test_a_glob_is_not_a_directory(tmp_path) -> None:
+    """Collecting unambiguous file literals wherever they sit picked up
+    `*/CLAUDE.md` and reported `*/ is written into 8 files` -- modules that
+    share a search pattern, not a directory anyone could relocate."""
+    root = project(tmp_path, {
+        f"m{i}.py": f'hits = glob("*/brief{i}.md")\n' for i in range(6)})
+    assert not any(f.summary.startswith("*/") for f in findings(root)), \
+        findings(root)
+
+
+def test_home_relative_reports_the_real_directory_not_a_tilde(tmp_path) -> None:
+    """`~/` as a head is every home-relative path in a project lumped
+    together and no directory at all."""
+    root = project(tmp_path, {
+        f"m{i}.py": f'p = Path("~/.claude/settings{i}.json")\n' for i in range(5)})
+    found = findings(root)
+    assert not any(f.summary.startswith("~/ ") for f in found), found
+    assert any("~/.claude" in f.summary for f in found), found
