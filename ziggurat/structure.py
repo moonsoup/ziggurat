@@ -881,9 +881,24 @@ def _scattered_paths(files: list, root: Path, report: Report) -> None:
     # not sound was the promotion: it matched any quoted occurrence with a
     # regex, so `cell["genes"]` counted as naming a directory. That is now an
     # AST question, asked by `_python_bare_strings`.
-    confirmed = {h for h, seen in by_head.items()
-                 if any(name != h for name in names_under.get(h, ()))
-                 or len(seen) >= SCATTER_AT}
+    # PROMOTION NEEDS A SLASH, not a count. The two are different claims and
+    # conflating them was issue #5.
+    #
+    # A head seen with something UNDER it -- `records/eye.jsonl` -- has been
+    # demonstrated to be a directory, so a bare "records" elsewhere is that
+    # same directory named again, and promoting it is sound.
+    #
+    # A head confirmed only by appearing in four path calls has been
+    # demonstrated to be a PATH, which is not the same thing. `Path("cache")`
+    # in four files is a real finding on its own; it does not license
+    # counting every other bare "cache" in the tree. It did: four
+    # `Path("cache")` plus six `print("cache")` were reported as ten files.
+    #
+    # The count still confirms for REPORTING -- those four files are genuinely
+    # naming the same thing -- it just no longer opens the door to promoting
+    # strings that were never shown to be paths at all.
+    promotable = {h for h in by_head
+                  if any(name != h for name in names_under.get(h, ()))}
     for path in files:
         if _is_test(path) or _is_config(path) or path.suffix != ".py":
             continue
@@ -894,7 +909,7 @@ def _scattered_paths(files: list, root: Path, report: Report) -> None:
         where = str(path.relative_to(root))
         for literal in bare:
             head = _path_head(literal) if "/" in literal else literal
-            if head not in confirmed:
+            if head not in promotable:
                 continue
             by_head.setdefault(head, set()).add(where)
             # And by literal, or a directory with only ONE name under it

@@ -346,3 +346,33 @@ def test_the_value_test_rejects_the_shapes_it_used_to_accept() -> None:
         assert not looks(not_a_path), not_a_path
     for is_a_path in ("records/eye.jsonl", "~/.claude", "./out", "/var/lib/x"):
         assert looks(is_a_path), is_a_path
+
+
+# --- #5: promotion needs a slash, not a count ------------------------------
+
+def test_a_head_confirmed_only_by_count_does_not_promote(tmp_path) -> None:
+    """Issue #5, and the distinction it turns on.
+
+    A head seen with something UNDER it has been shown to be a DIRECTORY, so
+    a bare mention elsewhere is that directory named again. A head confirmed
+    only by appearing in several path calls has been shown to be a PATH,
+    which is not the same claim -- and it was licensing every other bare
+    occurrence in the tree. Four `Path("cache")` plus six `print("cache")`
+    reported ten files.
+    """
+    files = {f"real{i}.py": 'p = Path("cache")\n' for i in range(4)}
+    files.update({f"noise{i}.py": 'print("cache")\n' for i in range(6)})
+    root = project(tmp_path, files)
+    for f in findings(root):
+        assert "10 files" not in f.summary, f.summary
+        assert "cache" not in f.summary or "4 files" in f.summary, f.summary
+
+
+def test_a_head_seen_with_a_slash_still_promotes(tmp_path) -> None:
+    """The capability this must not cost. `shoot(bod, cam, "records")` hands a
+    directory to a function whose name means nothing to a checker, and
+    `records/eye.jsonl` elsewhere is what proves `records` IS a directory."""
+    files = {f"real{i}.py": f'p = Path("records/a{i}.jsonl")\n' for i in range(4)}
+    files.update({f"pos{i}.py": 'shoot(bod, cam, "records")\n' for i in range(2)})
+    root = project(tmp_path, files)
+    assert any("6 files" in f.summary for f in findings(root)), findings(root)
