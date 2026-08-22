@@ -5,17 +5,23 @@ files, a call is present. Nothing here is a threshold on a quality metric,
 because a measure that becomes a target stops being a measure, and because a
 gate you can argue with is a gate people learn to ignore.
 
-The three checks are not a general theory of architecture. Each one is a
-failure that actually happened in a real project, chosen because imports could
-not see it:
+These checks are not a general theory of architecture. Each one is a failure
+that actually happened in a real project, chosen because imports could not see
+it:
 
     entry-point sprawl   24 scripts in bin/, none importing another
     dynamic loading      scripts loading scripts by file path
     scattered constants  one address written into a dozen files
+    scattered paths      one data directory named in twenty-one modules, so it
+                         could not be relocated at all
+
+The count is deliberately not written out. It said "three" for a while after
+there were four, which is the exact failure this tool exists to report.
 """
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -53,19 +59,69 @@ DYNAMIC_PATTERNS = (
 #: about a deployment, and 0.0.0.0 means "every interface" rather than a host.
 ADDRESS = re.compile(r"\b(?!127\.|0\.0\.0\.0)(?:\d{1,3}\.){3}\d{1,3}\b")
 
-#: A quoted thing with a slash in it. Paths are a far commoner scattered
-#: constant than addresses, and this checker could not see one: pointed at a
-#: project whose whole data directory was written into seventeen separate
-#: modules, it reported nothing, because `ADDRESS` matches dotted quads and a
-#: path is not a dotted quad.
+#: A quote-adjacent run containing a slash. Used ONLY for languages this cannot
+#: parse; Python goes through the AST, which knows the difference between a
+#: string that looks like a path and a string being USED as one.
+#:
+#: Its predecessor's docstring said "a quoted thing with a slash in it", which
+#: was aspirational: `"records/{name}.jsonl"` is a quoted thing with a slash in
+#: it and never matched, and every false negative followed from the gap between
+#: that sentence and this pattern.
 PATH_LITERAL = re.compile(r"""['"]([A-Za-z0-9_\-./]*?/[A-Za-z0-9_\-.]+)['"]""")
+
+#: Calls whose string arguments are paths. This is the whole discriminator, and
+#: it replaces asking whether a STRING looks like a path with asking whether it
+#: is being USED as one -- which is the only question that separates
+#: `Path("records/x")` from `import "os/exec"`, `"Qwen/gemma-2"` and `/game/state`.
+#:
+#: Pointed at Go and TypeScript projects, the shape-based version reported
+#: import specifiers and HuggingFace model IDs: `Qwen/` "written into 32 files",
+#: with the advice that relocating it should be a setting.
+PATH_CALLS = frozenset({
+    "Path", "PurePath", "PosixPath", "open", "join", "abspath", "realpath",
+    "dirname", "basename", "relpath", "expanduser", "mkdir", "makedirs",
+    "read_text", "write_text", "read_bytes", "write_bytes", "unlink",
+    "rmtree", "copy", "copytree", "move", "glob", "iglob", "rglob", "stat",
+    "exists", "isfile", "isdir", "listdir", "walk", "touch", "replace",
+})
+
+#: Suffixes that make a literal recognisable as a FILE in a language this
+#: cannot parse. Python goes through the AST and needs none of this; for shell,
+#: Go and TypeScript the only honest options were to report shape -- which
+#: produced thirty HuggingFace model IDs from one project's install scripts --
+#: or to report what can actually be recognised. This is the second.
+DATA_SUFFIXES = (
+    ".json", ".jsonl", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
+    ".csv", ".tsv", ".txt", ".log", ".db", ".sqlite", ".sql", ".xml",
+    ".html", ".css", ".md", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".pdf",
+    ".wav", ".mp3", ".mp4", ".aac", ".m4a", ".zip", ".tar", ".gz", ".apk",
+    ".secret", ".pem", ".key", ".crt", ".lock", ".pid", ".sh", ".py",
+)
+
+#: Navigation, not a name. Every Python project in existence joins on `..`,
+#: and a directory called `.` is nobody's directory.
+NAVIGATION = frozenset({".", "..", "./", "../", "/"})
+
+#: Path calls whose ARGUMENTS are themselves paths even when called as a
+#: method -- os.path.join(a, b), p.joinpath(c). Everything else called on an
+#: object takes options, not paths.
+JOINING = frozenset({"join", "joinpath"})
+
+#: Argparse destinations whose default is a path. An argparse default is the
+#: namer nobody finds when relocating, because it reads as configuration.
+PATH_OPTIONS = ("path", "dir", "out", "outdir", "output", "records", "into",
+                "to", "from", "file", "root", "store", "log", "dest")
 
 #: Heads that are not directories however much they look like one. `text/html`
 #: is a media type, and the first run of this check duly accused four files of
 #: scattering `application/` -- which was `"application/json"`, correctly
 #: written in all four.
+#: `http:` and `https:` are NOT here: `_is_path` rejects a scheme by its
+#: trailing colon, so listing them would be a second rule doing the first
+#: rule's job -- and the one place a duplicated guard already caused a bug was
+#: this same pair of functions.
 NOT_DIRECTORIES = ("application", "text", "audio", "image", "video",
-                   "multipart", "http:", "https:")
+                   "multipart", "font", "message", "model", "example")
 
 
 #: Files whose job is to hold configuration. A value appearing HERE is the
@@ -268,6 +324,147 @@ def _dynamic_loading(files: list, root: Path, report: Report) -> None:
     ))
 
 
+#: Lines that declare a dependency rather than name a file. Go's `os/exec`,
+#: TypeScript's `./client` and Java's `com.x.y` are namespaces, and reporting
+#: them as scattered paths made the check useless on every non-Python project
+#: it was pointed at -- which was all of them, because it had only ever been
+#: run on Python.
+IMPORT_LINE = re.compile(
+    r"""^\s*(?:import\b|from\b|export\s+[\w*{}\s,]+\s+from\b"""
+    r"""|(?:const|let|var)\s+[\w{}\s,]+=\s*require\()""")
+
+
+def _without_imports(text: str) -> str:
+    """The text with dependency declarations removed.
+
+    Whole lines, and a Go import block as a unit -- `import (` opens a
+    parenthesised list of bare specifiers with no keyword of their own, so a
+    line-by-line rule sees `"os/exec"` sitting alone and calls it a path.
+    """
+    kept, in_block = [], False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if in_block:
+            if stripped.startswith(")"):
+                in_block = False
+            kept.append("")
+            continue
+        if re.match(r"^\s*import\s*\($", line):
+            in_block = True
+            kept.append("")
+            continue
+        kept.append("" if IMPORT_LINE.match(line) else line)
+    return "\n".join(kept)
+
+
+def _literal_of(node) -> str:
+    """The constant text of a node, with expressions left as a placeholder.
+
+    An f-string is a path too: `f"records/{service}.log"` names the directory
+    exactly as firmly as a plain string, and the braces are why a
+    character-class regex walked past it.
+    """
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        out = []
+        for part in node.values:
+            if isinstance(part, ast.Constant) and isinstance(part.value, str):
+                out.append(part.value)
+            else:
+                out.append("*")
+        return "".join(out)
+    return ""
+
+
+def _call_name(node) -> str:
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return ""
+
+
+def _python_path_strings(text: str) -> set:
+    """Strings this module USES as paths, by reading the syntax.
+
+    Asking whether a string is used as a path, rather than whether it looks
+    like one, is what lets the same check see `default="records"` and ignore
+    `"Qwen/gemma-2-9b-it"`. Both are quoted, both contain no surprises; only
+    one of them is handed to a filesystem.
+
+    Covers, in order of how easily each was missed before:
+
+        Path("records/x")           a path call
+        root / "records" / name     a division whose operand is a path
+        f"records/{service}.log"    an f-string
+        default="records"           an argparse default on a path-ish option
+        shoot(bod, cam, "records")  positional, when the callee is path-ish
+
+    Returns "" on a syntax error rather than raising: a file that will not
+    parse is a file this cannot judge, and refusing to scan the rest of the
+    project over one of them would be the wrong trade.
+    """
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return set()
+
+    found: set = set()
+
+    def take(node) -> None:
+        literal = _literal_of(node)
+        if literal and not literal.startswith(("http://", "https://")):
+            found.add(literal)
+
+    for node in ast.walk(tree):
+        # Path("x"), open("x"), os.path.join("x", y), p.mkdir(...)
+        if isinstance(node, ast.Call):
+            name = _call_name(node)
+            attribute = isinstance(node.func, ast.Attribute)
+            if name in PATH_CALLS and (not attribute or name in JOINING):
+                # On a METHOD the path is the object and the arguments are
+                # options: `target.open("a")` passes a file MODE, and taking it
+                # as a path reported the letter "a" as a scattered directory in
+                # six files. Only joining methods take paths as arguments.
+                args = node.args[:1] if name == "open" and not attribute \
+                    else node.args
+                for arg in args:
+                    take(arg)
+            # add_argument("--out", default="records")
+            if name == "add_argument":
+                # WHOLE WORDS. Substring matching reported the profile name
+                # "balanced" as a scattered directory, because `--profile`
+                # contains "file".
+                words = set()
+                for a in node.args:
+                    words.update(re.split(r"[-_]+",
+                                          _literal_of(a).lstrip("-").lower()))
+                if words & set(PATH_OPTIONS):
+                    for kw in node.keywords:
+                        if kw.arg in ("default", "const"):
+                            take(kw.value)
+
+        # root / "records" / name -- a join is a namer with no slash in it,
+        # which is how two of these survived a sweep that fixed eighty.
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            for side in (node.left, node.right):
+                take(side)
+
+    return found
+
+
+def _recognisable_file(literal: str) -> bool:
+    """Does this literal look like a FILE, rather than merely have a slash?
+
+    Used only where the syntax cannot be read. `records/eye.jsonl` ends in a
+    data suffix; `Qwen/Qwen2.5-Coder-7B-Instruct` and `/genes` do not, and
+    nothing about their shape distinguishes them from a directory.
+    """
+    return literal.lower().endswith(DATA_SUFFIXES)
+
+
 def _is_path(literal: str) -> bool:
     """Is this quoted thing a path at all?
 
@@ -292,10 +489,12 @@ def _path_head(literal: str) -> str:
     one, which is that the directory itself is named in seventeen places.
     """
     head = literal.split("/")[0]
-    if not head or head.startswith(".") or "." in head:
+    if not head or "." in head or head in NAVIGATION:
         return ""
-    if head.lower() in NOT_DIRECTORIES:
-        return ""
+    # NOT re-checked against NOT_DIRECTORIES here. `_is_path` has already
+    # rejected those, so this branch was unreachable -- a rule applied twice on
+    # one route and never on the other, which is the fault #1's own commit
+    # message complained about, committed in the fix for it.
     return head
 
 
@@ -324,14 +523,64 @@ def _scattered_paths(files: list, root: Path, report: Report) -> None:
         except OSError:
             continue
         where = str(path.relative_to(root))
-        for literal in set(PATH_LITERAL.findall(_code_only(path, text))):
-            if not _is_path(literal):
+        if path.suffix == ".py":
+            # The syntax knows what a regex cannot: whether a string is being
+            # USED as a path or merely shaped like one.
+            literals = _python_path_strings(text)
+        else:
+            # No syntax to read, so only literals recognisable as files. The
+            # alternative is reporting shape, which on one project's shell
+            # scripts meant thirty model IDs advertised as a directory that
+            # ought to be relocated.
+            literals = {lit for lit in PATH_LITERAL.findall(
+                _code_only(path, _without_imports(text)))
+                if _recognisable_file(lit)}
+        for literal in literals:
+            if literal in NAVIGATION or not _is_path(literal):
                 continue
             by_literal.setdefault(literal, set()).add(where)
             head = _path_head(literal)
             if head:
                 by_head.setdefault(head, set()).add(where)
                 names_under.setdefault(head, set()).add(literal)
+
+    # SECOND PASS: a bare mention of a directory this project has ALREADY
+    # proved to be a path.
+    #
+    # `capture.shoot(bod, cam, "records")` passes a directory positionally to a
+    # function whose name means nothing to a checker, so the first pass walks
+    # past it -- and those are namers like any other. Rather than guess from
+    # the string, this uses the project's own evidence: if `records` is handed
+    # to Path() or joined with / somewhere, then a bare "records" elsewhere is
+    # the same directory being named again.
+    #
+    # It cannot manufacture a false positive on a project that never treats the
+    # string as a path, which is exactly what went wrong when shape alone
+    # decided: nothing confirms `Qwen` or `os/exec`, so nothing looks for them.
+    # Only heads this project has used as a DIRECTORY -- something appearing
+    # before a slash, or joined with `/`. A head confirmed only by a bare
+    # string is not evidence of a directory, and promoting one turned the dict
+    # key "genes" into a scattered path in fourteen files.
+    confirmed = {h for h, seen in by_head.items()
+                 if any(name != h for name in names_under.get(h, ()))
+                 or len(seen) >= SCATTER_AT}
+    for path in files:
+        if _is_test(path) or _is_config(path) or path.suffix != ".py":
+            continue
+        try:
+            code = _code_only(path, path.read_text(errors="replace"))
+        except OSError:
+            continue
+        where = str(path.relative_to(root))
+        for head in confirmed:
+            for hit in re.finditer(
+                    rf"""['"]({re.escape(head)}(?:/[^'"]*)?)['"]""", code):
+                by_head.setdefault(head, set()).add(where)
+                # And by literal, or a directory with only ONE name under it
+                # reports through the literal branch and never sees these --
+                # which left two files uncounted the first time.
+                by_literal.setdefault(hit.group(1), set()).add(where)
+                names_under.setdefault(head, set()).add(hit.group(1))
 
     for head, paths in sorted(by_head.items()):
         if len(paths) < SCATTER_AT:

@@ -23,6 +23,7 @@ So Ziggurat never blocks a keystroke. It runs when asked.
 | entry-point sprawl | structural | 24 scripts in one `bin/`. Entry points do not import each other, so no import analysis can see it — it shows up only as a count. |
 | dynamic loading | structural | code loaded by file path is a real dependency that every import analyser is blind to. |
 | scattered constants | structural | one address written into ten files means one idea costs ten edits. That number is the measurement. |
+| scattered paths | structural | one data directory named in twenty-one modules, so it could not be relocated at all — while a config field for it sat unused. A path is a far commoner scattered constant than an address, and this check did not exist until a project could not be moved because of one. |
 | change coupling | empirical | files that keep changing together are coupled whether or not either imports the other. Reads the git history. |
 
 **Structural findings are facts.** An import exists or it does not; a string is
