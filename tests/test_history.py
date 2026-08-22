@@ -148,3 +148,17 @@ def test_two_unrelated_modules_are_still_a_finding(tmp_path):
                           "src/beta.py": f"# {i}"}, f"c{i}")
     assert [f for f in history.analyse(tmp_path).findings
             if f.check == "change-coupling"]
+
+
+def test_version_manifests_do_not_couple_to_everything(tmp_path):
+    """pyproject.toml and __init__.py changed together 100% of the time in a
+    real project -- because every release bumps the version in both. That is
+    PROCESS coupling, not architecture, and it is the documented false-positive
+    mode of co-change analysis."""
+    repo(tmp_path)
+    for i in range(8):
+        commit(tmp_path, {"pyproject.toml": f'version="0.{i}"',
+                          "pkg/__init__.py": f'__version__="0.{i}"'}, f"release {i}")
+    coupled = [f for f in history.analyse(tmp_path).findings
+               if f.check == "change-coupling"]
+    assert not coupled

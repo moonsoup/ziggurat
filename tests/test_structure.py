@@ -101,3 +101,61 @@ def test_an_empty_project_is_not_an_error(tmp_path):
 def test_a_missing_directory_is_skipped_not_crashed(tmp_path):
     report = structure.analyse(tmp_path / "nope")
     assert report.skipped, "a check that did not run must say so"
+
+
+def test_the_config_module_is_where_the_value_belongs(tmp_path):
+    """Counting the config module as a violation tells you to remove the value
+    from the one place it should be."""
+    write(tmp_path, "src/config.py", 'HOST = "192.168.1.223"\n')
+    for i in range(5):
+        write(tmp_path, f"src/mod{i}.py", 'from .config import HOST\n')
+    report = structure.analyse(tmp_path)
+    assert not [f for f in report.findings if f.check == "scattered-constant"]
+
+
+def test_a_usage_example_in_a_docstring_is_documentation(tmp_path):
+    """`run.py --host 192.168.1.223` in a docstring is documentation. It can go
+    stale, which is a different and lesser problem than a coupling, and
+    reporting it as one is the noise that gets a checker switched off."""
+    for i in range(6):
+        write(tmp_path, f"src/mod{i}.py",
+              '"""Usage:\n\n    thing.py --host 192.168.1.223\n"""\n\nX = 1\n')
+    report = structure.analyse(tmp_path)
+    assert not [f for f in report.findings if f.check == "scattered-constant"]
+
+
+def test_a_comment_is_not_code_either(tmp_path):
+    for i in range(6):
+        write(tmp_path, f"src/mod{i}.py", '# the body lives at 192.168.1.223\nX = 1\n')
+    report = structure.analyse(tmp_path)
+    assert not [f for f in report.findings if f.check == "scattered-constant"]
+
+
+def test_an_assigned_string_is_still_code(tmp_path):
+    """Only bare docstrings are documentation. A value assigned to a name is
+    the coupling itself."""
+    for i in range(6):
+        write(tmp_path, f"src/mod{i}.py", 'HOST = "192.168.1.223"\n')
+    report = structure.analyse(tmp_path)
+    assert [f for f in report.findings if f.check == "scattered-constant"]
+
+
+def test_naming_a_pattern_is_not_using_it(tmp_path):
+    """Ziggurat flagged ITSELF: structure.py contains
+    "spec_from_file_location" as a string it searches for, not as a call. A
+    detector that cannot tell a mention from a use will always accuse its own
+    source, and anything else that discusses the technique."""
+    # Including the parenthesis, which is what the real source contains and
+    # what made adding the paren to the pattern fail to fix anything.
+    write(tmp_path, "src/checker.py",
+          'PATTERNS = ("spec_from_file_location(", "why it matters")\n')
+    report = structure.analyse(tmp_path)
+    assert not [f for f in report.findings if f.check == "dynamic-loading"]
+
+
+def test_actually_calling_it_is_still_found(tmp_path):
+    write(tmp_path, "src/real.py",
+          "import importlib.util\n"
+          "spec = importlib.util.spec_from_file_location('a', 'a.py')\n")
+    report = structure.analyse(tmp_path)
+    assert [f for f in report.findings if f.check == "dynamic-loading"]

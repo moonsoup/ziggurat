@@ -17,7 +17,7 @@ ANALYSERS = (("structure", structure.analyse), ("history", history.analyse))
 
 
 def analyse(root, only=None) -> Report:
-    root = Path(root)
+    root = Path(root).resolve()
     combined = Report(project=root.name)
     for name, run in ANALYSERS:
         if only and name not in only:

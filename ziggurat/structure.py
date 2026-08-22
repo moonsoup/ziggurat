@@ -37,17 +37,108 @@ SPRAWL_AT = 8
 #: nobody made.
 SCATTER_AT = 4
 
+#: Matched WITH the opening parenthesis, so that naming a technique is not
+#: mistaken for using it. Ziggurat accused its own source of dynamic loading
+#: because this very tuple contains the string it searches for -- a detector
+#: that cannot tell a mention from a use will accuse anything that discusses
+#: the subject, starting with itself.
 DYNAMIC_PATTERNS = (
-    ("spec_from_file_location", "python: loads a module from a file path"),
-    ("SourceFileLoader", "python: loads a module from a file path"),
+    ("spec_from_file_location(", "python: loads a module from a file path"),
+    ("SourceFileLoader(", "python: loads a module from a file path"),
     ("__import__(", "python: import by computed name"),
     ("require(path.", "node: require by computed path"),
-    ("importlib.machinery", "python: import machinery by path"),
 )
 
 #: Routable addresses only. Loopback is a statement about this machine, not
 #: about a deployment, and 0.0.0.0 means "every interface" rather than a host.
 ADDRESS = re.compile(r"\b(?!127\.|0\.0\.0\.0)(?:\d{1,3}\.){3}\d{1,3}\b")
+
+
+#: Files whose job is to hold configuration. A value appearing HERE is the
+#: value being where it belongs, and counting it as a violation would tell you
+#: to remove it from the one correct place.
+CONFIG_STEMS = {"config", "settings", "constants", "conf", "defaults", "env"}
+
+
+def _is_config(path: Path) -> bool:
+    return path.stem.lower() in CONFIG_STEMS
+
+
+def _code_only(path: Path, text: str, strip_strings: bool = False) -> str:
+    """The text with comments and docstrings removed.
+
+    A usage example in a docstring is DOCUMENTATION. It can go stale, which is
+    a different and much smaller problem than a coupling, and reporting it as
+    one is the noise that gets a checker switched off.
+
+    Only BARE string expressions are dropped. A string assigned to a name is
+    the coupling itself, not a description of one.
+
+    `strip_strings` empties string CONTENTS as well, for the checks where a
+    match inside a quote means nothing. A call is not a string literal: naming
+    `spec_from_file_location(` in a list of patterns is discussing the
+    technique, not using it -- and without this the detector accuses its own
+    source, which it duly did.
+    """
+    if path.suffix != ".py":
+        # Line comments for everything else; good enough, and it fails toward
+        # reporting rather than toward silence.
+        kept = []
+        for line in text.splitlines():
+            stripped = line.lstrip()
+            if stripped.startswith("#") or stripped.startswith("//"):
+                continue
+            kept.append(line)
+        return "\n".join(kept)
+
+    import ast
+    import io
+    import tokenize
+
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return text
+
+    drop = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                                 ast.AsyncFunctionDef)):
+            continue
+        body = getattr(node, "body", [])
+        if not body:
+            continue
+        first = body[0]
+        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) \
+                and isinstance(first.value.value, str):
+            for line in range(first.lineno, (first.end_lineno or first.lineno) + 1):
+                drop.add(line)
+
+    blanks = []
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(text).readline):
+            if token.type == tokenize.COMMENT:
+                for line in range(token.start[0], token.end[0] + 1):
+                    drop.add(line)
+            elif strip_strings and token.type == tokenize.STRING:
+                blanks.append(token)
+    except (tokenize.TokenError, IndentationError):
+        pass
+
+    lines = text.splitlines()
+    for token in blanks:
+        # Single-line strings become empty quotes; multi-line ones are dropped
+        # wholesale. Either way the CALL structure around them survives.
+        if token.start[0] == token.end[0]:
+            row = token.start[0] - 1
+            if 0 <= row < len(lines):
+                line = lines[row]
+                lines[row] = line[: token.start[1]] + '""' + line[token.end[1]:]
+        else:
+            for line_no in range(token.start[0], token.end[0] + 1):
+                drop.add(line_no)
+
+    return "\n".join(line for n, line in enumerate(lines, 1) if n not in drop)
 
 
 def _is_test(path: Path) -> bool:
@@ -68,7 +159,7 @@ def _sources(root: Path):
 
 
 def analyse(root) -> Report:
-    root = Path(root)
+    root = Path(root).resolve()
     report = Report(project=root.name)
     if not root.is_dir():
         return report.skip("structure", f"{root} is not a directory")
@@ -110,8 +201,9 @@ def _dynamic_loading(files: list, root: Path, report: Report) -> None:
             text = path.read_text(errors="replace")
         except OSError:
             continue
+        code = _code_only(path, text, strip_strings=True)
         for needle, why in DYNAMIC_PATTERNS:
-            if needle in text:
+            if needle in code:
                 hits.append((str(path.relative_to(root)), why))
                 break
     if not hits:
@@ -132,13 +224,13 @@ def _dynamic_loading(files: list, root: Path, report: Report) -> None:
 def _scattered_constants(files: list, root: Path, report: Report) -> None:
     where: dict = {}
     for path in files:
-        if _is_test(path):
+        if _is_test(path) or _is_config(path):
             continue
         try:
             text = path.read_text(errors="replace")
         except OSError:
             continue
-        for address in set(ADDRESS.findall(text)):
+        for address in set(ADDRESS.findall(_code_only(path, text))):
             # A dotted quad in a comment is still a dotted quad; version
             # numbers are not, because they do not have four parts.
             where.setdefault(address, set()).add(str(path.relative_to(root)))

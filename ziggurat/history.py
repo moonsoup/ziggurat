@@ -44,6 +44,14 @@ GENERATED_DIRS = {"build", "dist", "target", "out", "node_modules", ".venv",
                   "venv", "__pycache__", "vendor", "coverage", ".tox"}
 
 #: Extensions that are never authored by hand.
+#: Files that every release touches by process rather than by design. In a real
+#: project pyproject.toml and __init__.py co-changed 100% of the time -- because
+#: each release bumps the version in both. That is process coupling, and
+#: reporting it as architecture is the documented false-positive mode.
+MANIFESTS = {"pyproject.toml", "setup.py", "setup.cfg", "package.json",
+             "package-lock.json", "VERSION", "Cargo.toml", "CHANGELOG.md",
+             "__init__.py", "version.py", "_version.py"}
+
 GENERATED_SUFFIXES = {".apk", ".dex", ".idsig", ".jar", ".class", ".pyc", ".so",
                       ".dylib", ".o", ".a", ".zip", ".tar", ".gz", ".lock",
                       ".png", ".jpg", ".jpeg", ".mp4", ".m4a", ".wav", ".pdf",
@@ -73,6 +81,10 @@ def _pairs_as_test(left: str, right: str) -> bool:
     if stem(left) != stem(right):
         return False
     return any("test" in p.lower() or "spec" in p.lower() for p in (left, right))
+
+
+def _is_manifest(path: str) -> bool:
+    return path.split("/")[-1] in MANIFESTS
 
 
 def _is_generated(path: str) -> bool:
@@ -108,7 +120,7 @@ def _log(root: Path) -> list:
 
 
 def analyse(root) -> Report:
-    root = Path(root)
+    root = Path(root).resolve()
     report = Report(project=root.name)
     if not (root / ".git").exists():
         return report.skip("change-coupling", f"{root} is not a git repository")
@@ -127,7 +139,8 @@ def analyse(root) -> Report:
         if len(files) > SWEEP_AT:
             continue
 
-        unique = sorted({f for f in set(files) if not _is_generated(f)})
+        unique = sorted({f for f in set(files)
+                         if not _is_generated(f) and not _is_manifest(f)})
         if len(unique) < 2:
             continue
         touched.update(unique)
