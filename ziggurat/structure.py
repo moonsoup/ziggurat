@@ -363,6 +363,7 @@ def analyse(root) -> Report:
     _dynamic_loading(files, root, report)
     _scattered_constants(files, root, report)
     _scattered_paths(files, root, report)
+    _sibling_from_global(files, root, report)
     return report
 
 
@@ -994,3 +995,163 @@ def _scattered_constants(files: list, root: Path, report: Report) -> None:
             suggestion=("put it in a config module and read it from there, so "
                         "the next change is one edit."),
         ))
+
+
+# --- the filename from the argument, the directory from a global ------------
+
+#: Attributes that take the NAME off a path and leave the location behind.
+NAME_PARTS = frozenset({"stem", "name", "suffix", "suffixes"})
+
+#: Building a path from a base. `CONFIG.path(x)`, `ROOT.joinpath(x)`, `ROOT / x`.
+FROM_BASE = frozenset({"path", "joinpath", "join", "with_name", "with_suffix"})
+
+
+def _bound_in(func) -> set:
+    """Every name the function itself binds -- parameters and assignments.
+
+    Anything used and not in here came from an enclosing scope, which for a
+    module-level function means the module.
+    """
+    a = func.args
+    names = {p.arg for p in
+             (*a.posonlyargs, *a.args, *a.kwonlyargs) if p}
+    for extra in (a.vararg, a.kwarg):
+        if extra:
+            names.add(extra.arg)
+    for node in ast.walk(func):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            names.add(node.id)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                names.add(alias.asname or alias.name.split(".")[0])
+    return names
+
+
+def _leftmost_name(node):
+    """The name an attribute or call chain is rooted at."""
+    while True:
+        if isinstance(node, ast.Attribute):
+            node = node.value
+        elif isinstance(node, ast.Call):
+            node = node.func
+        elif isinstance(node, ast.Subscript):
+            node = node.value
+        else:
+            return node.id if isinstance(node, ast.Name) else None
+
+
+def _path_params(func) -> set:
+    """Parameters that carry a path.
+
+    By annotation where there is one, by name where there is not. Both are
+    needed: the function that prompted this check annotated nothing.
+    """
+    found = set()
+    a = func.args
+    for arg in (*a.posonlyargs, *a.args, *a.kwonlyargs):
+        if arg.annotation is not None:
+            text = ast.unparse(arg.annotation)
+            if "Path" in text:
+                found.add(arg.arg)
+                continue
+        if arg.arg in PATH_PARAM_NAMES:
+            found.add(arg.arg)
+    return found
+
+
+#: Parameter names that mean "a path" often enough to check. Deliberately
+#: short: a wrong guess here is a false report on somebody's `name` variable.
+PATH_PARAM_NAMES = frozenset({"path", "file", "filename", "filepath", "stream",
+                              "log", "logfile", "source", "src", "dest",
+                              "destination", "target", "outfile", "infile"})
+
+
+def _from_a_global(node, bound: set) -> str:
+    """Is this expression building a path out of a module-level constant?
+
+    ALL-CAPS is the test, because that is the convention for a module constant
+    and it keeps `Path(...)` and `os.path.join(...)` out of the result -- a
+    class and a module are not what this check is about.
+    """
+    for sub in ast.walk(node):
+        base = None
+        if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute) \
+                and sub.func.attr in FROM_BASE:
+            base = _leftmost_name(sub.func.value)
+        elif isinstance(sub, ast.BinOp) and isinstance(sub.op, ast.Div):
+            base = _leftmost_name(sub.left)
+        if base and base not in bound and base.isupper():
+            return base
+    return ""
+
+
+def _names_a_part_of(node, params: set) -> str:
+    """Does this expression take the NAME off one of the path parameters?"""
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Attribute) and sub.attr in NAME_PARTS \
+                and isinstance(sub.value, ast.Name) and sub.value.id in params:
+            return f"{sub.value.id}.{sub.attr}"
+    return ""
+
+
+def _sibling_from_global(files: list, root: Path, report: Report) -> None:
+    """A function handed a path, locating that path's NEIGHBOUR via a global.
+
+    The signature is narrow and specific: the filename comes from the
+    argument, the directory comes from a module constant. `CONFIG.path(f"x-
+    {stream.stem}.json")` says "I will take the name from your path and decide
+    the location myself", and the result is a real file, in a real directory,
+    that is not the one the caller was talking about.
+
+    It is worth its own check because of how it fails. It does not raise, and
+    it does not return anything malformed -- it returns a plausible path to a
+    plausible file, so the damage lands somewhere else entirely and the search
+    starts there. Measured on the project this came from: thinning a test
+    fixture named `eye.jsonl` under a temporary directory rewrote the cursor
+    of the production `eye.jsonl`, moving a live reader from byte 1,900,896,218
+    to byte 989 of a two-gigabyte log. It ran on every test run for a day. Two
+    instruments and three theories went into the relay that looked broken,
+    which is the part that makes this cheaper to catch than to find.
+
+    The global is not wrong in itself -- it is right for a caller holding no
+    path. It becomes wrong the moment one is passed and ignored.
+    """
+    for path in files:
+        if path.suffix != ".py" or _is_test(path) or _is_config(path):
+            continue
+        try:
+            tree = ast.parse(path.read_text(errors="replace"))
+        except (OSError, SyntaxError, ValueError):
+            continue
+        where = str(path.relative_to(root))
+        for func in ast.walk(tree):
+            if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            params = _path_params(func)
+            if not params:
+                continue
+            bound = _bound_in(func)
+            for node in ast.walk(func):
+                if not isinstance(node, (ast.Return, ast.Assign)):
+                    continue
+                value = node.value
+                if value is None:
+                    continue
+                base = _from_a_global(value, bound)
+                part = _names_a_part_of(value, params)
+                if not base or not part:
+                    continue
+                report.add(Finding(
+                    check="sibling-from-global",
+                    summary=(f"{where}:{node.lineno} {func.name}() takes a "
+                             f"path but locates a sibling through {base}"),
+                    evidence=(f"takes `{part.split('.')[0]}`, uses "
+                              f"`{part}` for the name and {base} for the "
+                              f"directory -- so the file it returns is beside "
+                              f"{base}, not beside the path it was given"),
+                    confidence=Confidence.STRUCTURAL,
+                    paths=(where,),
+                    suggestion=(f"derive it from the argument: "
+                                f"`{part.split('.')[0]}.parent / ...`"),
+                ))
+                break

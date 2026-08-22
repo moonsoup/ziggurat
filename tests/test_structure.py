@@ -206,3 +206,116 @@ def test_a_shim_with_logic_smuggled_in_still_counts(tmp_path):
               "raise SystemExit(main())\n")
     report = structure.analyse(tmp_path)
     assert [f for f in report.findings if f.check == "entry-point-sprawl"]
+
+
+# --- the filename from the argument, the directory from a global ------------
+
+def hits(tmp_path):
+    return [f for f in structure.analyse(tmp_path).findings
+            if f.check == "sibling-from-global"]
+
+
+def test_a_sibling_located_through_a_global_is_found(tmp_path):
+    """The real one, verbatim.
+
+    `_cursor_path` was handed a log and returned the cursor for a DIFFERENT
+    log -- same filename, wrong directory. It never raised and never returned
+    anything malformed, so the damage appeared two systems away: thinning a
+    test fixture named `eye.jsonl` rewrote the production cursor, moving a
+    live reader to byte 989 of a two-gigabyte log, on every test run for a day.
+    """
+    write(tmp_path, "keeping.py", '''
+from config import CONFIG
+
+def _cursor_path(stream):
+    return CONFIG.path(f"relay-{stream.stem}.json")
+''')
+    found = hits(tmp_path)
+    assert found, "the filename came from the argument and the directory did not"
+    assert "CONFIG" in found[0].summary
+    assert "stream.stem" in found[0].evidence
+    assert found[0].confidence is Confidence.STRUCTURAL
+
+
+def test_the_division_form_is_found_too(tmp_path):
+    """`ROOT / name` is the same mistake with different syntax, and a check
+    that only knew one spelling would be a check you could get past by
+    reformatting."""
+    write(tmp_path, "store.py", '''
+ROOT = "/var/lib/thing"
+
+def cache_for(path):
+    return ROOT / (path.stem + ".cache")
+''')
+    assert hits(tmp_path)
+
+
+def test_deriving_from_the_argument_is_not_reported(tmp_path):
+    """The fix must silence it, or the check cannot be acted on."""
+    write(tmp_path, "keeping.py", '''
+from config import CONFIG
+
+def _cursor_path(stream):
+    return stream.parent / f"relay-{stream.stem}.json"
+''')
+    assert not hits(tmp_path)
+
+
+def test_a_global_used_without_the_arguments_name_is_not_reported(tmp_path):
+    """Copying a template beside a global INTO a given path is ordinary and
+    correct. The fault is taking the name from one place and the location from
+    another; using a global on its own is not the fault."""
+    write(tmp_path, "install.py", '''
+from config import CONFIG
+
+def install(dest):
+    return CONFIG.path("template.conf"), dest
+''')
+    assert not hits(tmp_path)
+
+
+def test_a_function_with_no_path_argument_is_not_reported(tmp_path):
+    """With no path in hand, the global is the right answer -- it is the only
+    answer. This check is about ignoring a path that was passed."""
+    write(tmp_path, "places.py", '''
+from config import CONFIG
+
+def cursor():
+    return CONFIG.path("relay-eye.json")
+''')
+    assert not hits(tmp_path)
+
+
+def test_a_module_or_class_is_not_mistaken_for_a_constant(tmp_path):
+    """`Path(...)` and `os.path.join(...)` root at a class and a module, and
+    reporting those would bury the real signal in every file that builds a
+    path at all."""
+    write(tmp_path, "places.py", '''
+import os.path
+from pathlib import Path
+
+def beside(path):
+    return Path(path.parent) / path.name
+
+def also(path):
+    return os.path.join(str(path.parent), path.stem + ".bak")
+''')
+    assert not hits(tmp_path)
+
+
+def test_tests_and_config_are_not_reported(tmp_path):
+    """A config module's whole job is turning constants into paths, and a test
+    reaching for a global is reaching into its own fixtures."""
+    write(tmp_path, "config.py", '''
+ROOT = "/var/lib/thing"
+
+def path_for(path):
+    return ROOT / path.name
+''')
+    write(tmp_path, "tests/test_it.py", '''
+ROOT = "/tmp/x"
+
+def helper(path):
+    return ROOT / path.name
+''')
+    assert not hits(tmp_path)
