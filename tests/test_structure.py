@@ -159,3 +159,50 @@ def test_actually_calling_it_is_still_found(tmp_path):
           "spec = importlib.util.spec_from_file_location('a', 'a.py')\n")
     report = structure.analyse(tmp_path)
     assert [f for f in report.findings if f.check == "dynamic-loading"]
+
+
+def test_a_delegating_shim_is_an_alias_not_an_entry_point(tmp_path):
+    """The check's own rationale is that each entry point re-decides config,
+    argument handling and discovery. A shim that imports one function
+    re-decides nothing -- so counting it means counting FILES while claiming to
+    count independent implementations.
+
+    This is the refinement that lets a real consolidation register as one.
+    """
+    write(tmp_path, "pkg/__init__.py")
+    write(tmp_path, "bin/tool.py", "from pkg.commands import run\nrun()\n")
+    for i in range(14):
+        write(tmp_path, f"bin/old{i}.py",
+              "import sys\n"
+              "from pathlib import Path\n"
+              f"from pkg.commands.old{i} import main\n"
+              "raise SystemExit(main())\n")
+    report = structure.analyse(tmp_path)
+    assert not [f for f in report.findings if f.check == "entry-point-sprawl"]
+
+
+def test_real_sprawl_is_still_sprawl(tmp_path):
+    """Fourteen scripts that each define their own logic is the thing the check
+    exists for, and must not be excused by this refinement."""
+    for i in range(14):
+        write(tmp_path, f"bin/thing{i}.py",
+              "import argparse\n"
+              "def main():\n"
+              "    ap = argparse.ArgumentParser()\n"
+              "    ap.add_argument('--host', default='10.0.0.1')\n"
+              "    return 0\n")
+    report = structure.analyse(tmp_path)
+    assert [f for f in report.findings if f.check == "entry-point-sprawl"]
+
+
+def test_a_shim_with_logic_smuggled_in_still_counts(tmp_path):
+    """Otherwise the exemption becomes the hiding place."""
+    write(tmp_path, "pkg/__init__.py")
+    for i in range(14):
+        write(tmp_path, f"bin/old{i}.py",
+              f"from pkg.commands.old{i} import main\n"
+              "def helper():\n"
+              "    return 42\n"
+              "raise SystemExit(main())\n")
+    report = structure.analyse(tmp_path)
+    assert [f for f in report.findings if f.check == "entry-point-sprawl"]

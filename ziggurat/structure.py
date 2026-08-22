@@ -171,9 +171,41 @@ def analyse(root) -> Report:
     return report
 
 
+def _is_shim(path: Path) -> bool:
+    """Does this entry point delegate, rather than implement?
+
+    The check's rationale is that separate entry points each re-decide
+    configuration, argument handling and discovery. A file that defines nothing
+    and imports its behaviour re-decides none of that -- it is an alias for a
+    command, and counting it means counting FILES while claiming to count
+    independent implementations.
+
+    Structural, so it cannot be gamed by intent: a single `def` or `class` and
+    it is implementing something again, which is exactly when it stops being a
+    shim.
+    """
+    if path.suffix != ".py":
+        return False
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return False
+    import ast
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return False
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            return False
+    # It must actually delegate somewhere, or it is not a shim, just short.
+    return any(isinstance(node, (ast.Import, ast.ImportFrom)) for node in tree.body)
+
+
 def _entry_points(root: Path, files: list, report: Report) -> None:
     entries = [f for f in files
-               if any(part in ENTRY_DIRS for part in f.parts) and not _is_test(f)]
+               if any(part in ENTRY_DIRS for part in f.parts)
+               and not _is_test(f) and not _is_shim(f)]
     if len(entries) < SPRAWL_AT:
         return
     report.add(Finding(
