@@ -119,3 +119,40 @@ will never catch that. So this is not a substitute for the full report -- it
 catches the structural half immediately and leaves the historical half to a
 slower rhythm, which is the part that belongs in planning rather than in a
 hook.
+
+### What the literature actually says about cadence
+
+Ford, Parsons and Kua classify every architectural check on two axes BEFORE
+deciding when to run it -- atomic (one context) against holistic (dimensions
+interacting), and triggered (an event) against continual (constant
+verification):
+
+|            | triggered                                   | continual                          |
+|------------|---------------------------------------------|------------------------------------|
+| atomic     | circular dependencies, complexity, coverage | endpoint conformance, conformity monkey |
+| holistic   | integration tests -- security against scalability | performance monitoring, chaos monkey |
+
+The point is that **cadence is DERIVED from the classification, not chosen
+separately**. The question is not "how often should this run" but "what kind of
+check is this", and the answer decides. That makes the classification a
+planning artefact rather than an operational tuning knob -- which is the whole
+premise of this tool.
+
+Against that taxonomy:
+
+- `drift` is **atomic/triggered**. It examines one thing -- the shape -- and
+  runs on an event. That is the box that belongs in a per-edit hook.
+- the **change-coupling** finding is neither. It is mined from version-control
+  history, and nothing about a single commit makes it true or false. Tornhill's
+  work treats coupling and hotspots as a way of PRIORITISING refactoring
+  targets, not as a gate, which is why this tool prints it and never fails on
+  it. That is the orthodox treatment, not a hedge.
+
+The honest order, then, is the opposite of how `drift` came to exist here: it
+was built first and classified afterwards. In planning, decide which fitness
+functions a project needs and what category each falls into -- and the hooks
+follow mechanically.
+
+Sources: Ford, Parsons & Kua, *Building Evolutionary Architectures* (2nd ed.),
+ch. 2; Adam Tornhill, *Software Design X-Rays* / CodeScene.
+
