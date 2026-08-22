@@ -53,6 +53,20 @@ DYNAMIC_PATTERNS = (
 #: about a deployment, and 0.0.0.0 means "every interface" rather than a host.
 ADDRESS = re.compile(r"\b(?!127\.|0\.0\.0\.0)(?:\d{1,3}\.){3}\d{1,3}\b")
 
+#: A quoted thing with a slash in it. Paths are a far commoner scattered
+#: constant than addresses, and this checker could not see one: pointed at a
+#: project whose whole data directory was written into seventeen separate
+#: modules, it reported nothing, because `ADDRESS` matches dotted quads and a
+#: path is not a dotted quad.
+PATH_LITERAL = re.compile(r"""['"]([A-Za-z0-9_\-./]*?/[A-Za-z0-9_\-.]+)['"]""")
+
+#: Heads that are not directories however much they look like one. `text/html`
+#: is a media type, and the first run of this check duly accused four files of
+#: scattering `application/` -- which was `"application/json"`, correctly
+#: written in all four.
+NOT_DIRECTORIES = ("application", "text", "audio", "image", "video",
+                   "multipart", "http:", "https:")
+
 
 #: Files whose job is to hold configuration. A value appearing HERE is the
 #: value being where it belongs, and counting it as a violation would tell you
@@ -168,6 +182,7 @@ def analyse(root) -> Report:
     _entry_points(root, files, report)
     _dynamic_loading(files, root, report)
     _scattered_constants(files, root, report)
+    _scattered_paths(files, root, report)
     return report
 
 
@@ -251,6 +266,117 @@ def _dynamic_loading(files: list, root: Path, report: Report) -> None:
         suggestion=("if the loaded file is worth importing, it belongs in the "
                     "package where it can be imported normally."),
     ))
+
+
+def _is_path(literal: str) -> bool:
+    """Is this quoted thing a path at all?
+
+    Rejected at COLLECTION rather than at reporting, because the first version
+    guarded only the directory branch and let `application/json` through the
+    literal one -- so the check that was written to avoid accusing four files
+    of scattering a media type accused four files of scattering a media type.
+    A rule applied on one path out of two is not applied.
+    """
+    head = literal.split("/")[0].lower()
+    if head in NOT_DIRECTORIES:
+        return False
+    # A URL is an address, not a path in this tree.
+    return not (head.endswith(":") or "://" in literal)
+
+
+def _path_head(literal: str) -> str:
+    """The directory a literal hangs off, or "" if it does not hang off one.
+
+    `records/eye.jsonl` and `records/ear.jsonl` are two literals and ONE idea.
+    Counting them separately reports two small problems and misses the large
+    one, which is that the directory itself is named in seventeen places.
+    """
+    head = literal.split("/")[0]
+    if not head or head.startswith(".") or "." in head:
+        return ""
+    if head.lower() in NOT_DIRECTORIES:
+        return ""
+    return head
+
+
+def _scattered_paths(files: list, root: Path, report: Report) -> None:
+    """Paths written into many files, by literal and by directory.
+
+    Reported as two shapes because they are two faults:
+
+      the same literal in many files      one FILE with many namers
+      the same directory in many files    one IDEA with many namers
+
+    The second is the harder one and the one a literal-only check cannot see.
+    Measured on the project that prompted this: `records/eye.jsonl` appears in
+    8 files, which is worth knowing; `records/` appears in 17 across 33
+    distinct paths, which is why the directory could not be moved at all.
+    """
+    by_literal: dict = {}
+    by_head: dict = {}
+    names_under: dict = {}
+
+    for path in files:
+        if _is_test(path) or _is_config(path):
+            continue
+        try:
+            text = path.read_text(errors="replace")
+        except OSError:
+            continue
+        where = str(path.relative_to(root))
+        for literal in set(PATH_LITERAL.findall(_code_only(path, text))):
+            if not _is_path(literal):
+                continue
+            by_literal.setdefault(literal, set()).add(where)
+            head = _path_head(literal)
+            if head:
+                by_head.setdefault(head, set()).add(where)
+                names_under.setdefault(head, set()).add(literal)
+
+    for head, paths in sorted(by_head.items()):
+        if len(paths) < SCATTER_AT:
+            continue
+        names = names_under.get(head, set())
+        # A directory named once per file is the same fault as a literal named
+        # once per file; reporting both would say it twice.
+        if len(names) < 2:
+            continue
+        report.add(Finding(
+            check="scattered-path",
+            summary=(f"{head}/ is written into {len(paths)} files, "
+                     f"as {len(names)} different paths"),
+            evidence=(f"{head}/ is named in {len(paths)} separate files: "
+                      f"{', '.join(sorted(paths)[:5])}"
+                      f"{'...' if len(paths) > 5 else ''}. One IDEA with many "
+                      "namers -- moving this directory means finding every one "
+                      "of them, and a search you might not finish."),
+            confidence=Confidence.STRUCTURAL,
+            paths=tuple(sorted(paths)),
+            suggestion=("give the directory one name in a config module and "
+                        "join onto it, so relocating it is a setting rather "
+                        "than an edit per module."),
+        ))
+
+    for literal, paths in sorted(by_literal.items()):
+        if len(paths) < SCATTER_AT:
+            continue
+        head = _path_head(literal)
+        # Already covered, and more usefully, by the directory finding above.
+        if head and len(by_head.get(head, ())) >= SCATTER_AT \
+                and len(names_under.get(head, ())) >= 2:
+            continue
+        report.add(Finding(
+            check="scattered-path",
+            summary=f"{literal} appears in {len(paths)} files",
+            evidence=(f"{literal} is written into {len(paths)} separate files: "
+                      f"{', '.join(sorted(paths)[:5])}"
+                      f"{'...' if len(paths) > 5 else ''}. One file with many "
+                      "namers; renaming or moving it costs every one of them."),
+            confidence=Confidence.STRUCTURAL,
+            paths=tuple(sorted(paths)),
+            suggestion=("name it once where it belongs and import it, so the "
+                        "next change is one edit."),
+        ))
 
 
 def _scattered_constants(files: list, root: Path, report: Report) -> None:
