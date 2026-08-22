@@ -154,6 +154,11 @@ LOOKUPS = frozenset({"get", "pop", "setdefault", "getattr", "getenv"})
 #: on those alone reported `--log-level`'s default as the directory `INFO/`,
 #: `--output-format`'s as `json/`, `--to`'s as an email address, and
 #: `--dest-state`'s as `pending/`. Those need the VALUE to corroborate.
+#:
+#: A strong word must also be the option's LAST word, because the trailing
+#: noun is what the value is OF. `--outdir` and `--out-dir` name a directory;
+#: `--filename-case` names a case and its default is `lower`, which this
+#: reported as a directory scattered across five files.
 STRONG_PATH_OPTIONS = ("path", "dir", "dirs", "directory", "outdir", "folder",
                        "filename", "filepath", "pathname", "workdir")
 
@@ -560,7 +565,12 @@ def _python_path_strings(text: str) -> set:
                 for a in node.args:
                     words.update(re.split(r"[-_]+",
                                           _literal_of(a).lstrip("-").lower()))
-                strong = bool(words & set(STRONG_PATH_OPTIONS))
+                last = ""
+                for a in node.args:
+                    spelt = _literal_of(a).lstrip("-").lower()
+                    if spelt:
+                        last = re.split(r"[-_]+", spelt)[-1]
+                strong = last in STRONG_PATH_OPTIONS
                 weak = bool(words & set(WEAK_PATH_OPTIONS))
                 if strong or weak:
                     for kw in node.keywords:
@@ -617,6 +627,15 @@ def _value_looks_like_a_path(literal: str) -> bool:
         return False
     if "@" in literal or "://" in literal:
         return False
+    # A slash is not enough on its own. Verified directly against this
+    # function: a date `2026/08/22`, a regex `^\d+/\d+$`, a glob `*.py` and an
+    # API route `/v1/messages` all answered True, and a `--from`/`--to` pair
+    # of dates duly reported `2026/08/22 appears in 5 files`.
+    if any(ch in literal for ch in "*?[]^$|+()"):
+        return False
+    pieces = [bit for bit in literal.replace("\\", "/").split("/") if bit]
+    if pieces and all(bit.isdigit() for bit in pieces):
+        return False  # a date, a version, a ratio -- not a directory
     return (literal.startswith(("~", "/", "./", "../"))
             or "/" in literal or "\\" in literal
             or literal.lower().endswith(DATA_SUFFIXES))

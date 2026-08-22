@@ -300,3 +300,49 @@ def test_home_relative_reports_the_real_directory_not_a_tilde(tmp_path) -> None:
     found = findings(root)
     assert not any(f.summary.startswith("~/ ") for f in found), found
     assert any("~/.claude" in f.summary for f in found), found
+
+
+# --- F4: what the widened word lists let through ---------------------------
+
+def test_a_compound_option_is_judged_by_its_last_word(tmp_path) -> None:
+    """`--filename-case` names a case, not a filename, and its default
+    `lower` was reported as a directory across five files. The trailing noun
+    is what the value is OF."""
+    root = project(tmp_path, {
+        f"m{i}.py": 'ap.add_argument("--filename-case", default="lower")\n'
+        for i in range(5)})
+    assert not any("lower" in f.summary for f in findings(root)), findings(root)
+
+
+def test_outdir_still_carries_its_bare_default(tmp_path) -> None:
+    """The capability the last-word rule must not cost."""
+    root = project(tmp_path, {
+        f"m{i}.py": f'ap.add_argument("--out-dir", default="records/x{i}.json")\n'
+        for i in range(5)})
+    assert any("records" in f.summary for f in findings(root)), findings(root)
+
+
+def test_a_date_is_not_a_directory(tmp_path) -> None:
+    """A slash is not enough. `--from`/`--to` defaults of 2026/08/22 reported
+    a directory across five files, at both previous commits."""
+    root = project(tmp_path, {
+        f"m{i}.py": 'ap.add_argument("--from", default="2026/08/22")\n'
+        for i in range(5)})
+    assert findings(root) == [], findings(root)
+
+
+def test_a_regex_default_is_not_a_directory(tmp_path) -> None:
+    root = project(tmp_path, {
+        f"m{i}.py": 'ap.add_argument("--source", default=r"^\\d+/\\d+$")\n'
+        for i in range(5)})
+    assert findings(root) == [], findings(root)
+
+
+def test_the_value_test_rejects_the_shapes_it_used_to_accept() -> None:
+    """Checked directly, because these reached it through several callers."""
+    from ziggurat.structure import _value_looks_like_a_path as looks
+
+    for not_a_path in ("2026/08/22", r"^\d+/\d+$", "*.py", "a|b/c", "1/2/3"):
+        assert not looks(not_a_path), not_a_path
+    for is_a_path in ("records/eye.jsonl", "~/.claude", "./out", "/var/lib/x"):
+        assert looks(is_a_path), is_a_path
