@@ -12,24 +12,38 @@ it:
     entry-point sprawl   24 scripts in bin/, none importing another
     dynamic loading      scripts loading scripts by file path
     scattered constants  one address written into a dozen files
-    scattered paths      one data directory named in twenty-one modules, so it
-                         could not be relocated at all
+    scattered paths      one data directory named in every module that touched
+                         it, so it could not be relocated at all
 
-The count is deliberately not written out. It said "three" for a while after
-there were four, which is the exact failure this tool exists to report.
+Neither count is written out. The number of checks said "three" for a while
+after there were four; the number of modules was written as "twenty-one" while
+the measurement said 17 before the fix and 22 after, so it matched nothing at
+any point. Both are the exact failure this tool exists to report, committed
+inside the tool that reports it.
 """
 
 from __future__ import annotations
 
 import ast
 import re
+import subprocess
 from pathlib import Path
 
 from ziggurat.findings import Confidence, Finding, Report
 
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist",
              "build", "target", "site-packages", ".mypy_cache", ".pytest_cache",
-             ".tox", "vendor", ".idea", ".spi"}
+             ".tox", "vendor", ".idea", ".spi",
+             # Framework build output. `.next` held a project's entire
+             # bundled `node_modules_*.js`, from which this reported
+             # `/robots.txt` across twelve files and `/sitemap.xml` across
+             # twelve more -- none of them anybody's source.
+             ".next", ".nuxt", ".svelte-kit", ".turbo", ".parcel-cache",
+             ".cache", "coverage", ".gradle", ".terraform",
+             # A git worktree is a full second copy of the repo. Counting it
+             # doubles every file, which put six of one project's seven
+             # findings over the threshold on two real files apiece.
+             "worktrees"}
 
 SOURCE_SUFFIXES = {".py", ".sh", ".js", ".ts", ".rb", ".go", ".java", ".kt"}
 
@@ -78,7 +92,12 @@ PATH_LITERAL = re.compile(r"""['"]([A-Za-z0-9_\-./]*?/[A-Za-z0-9_\-.]+)['"]""")
 #: import specifiers and HuggingFace model IDs: `Qwen/` "written into 32 files",
 #: with the advice that relocating it should be a setting.
 PATH_CALLS = frozenset({
-    "Path", "PurePath", "PosixPath", "open", "join", "abspath", "realpath",
+    # `joinpath` was in JOINING and NOT here, and the guard requires both, so
+    # `p.joinpath("records")` was collected by nothing while the comment on
+    # JOINING advertised it as an example. A project that joins with
+    # .joinpath() rather than / was entirely invisible.
+    "Path", "PurePath", "PosixPath", "PurePosixPath", "PureWindowsPath",
+    "WindowsPath", "joinpath", "open", "join", "abspath", "realpath",
     "dirname", "basename", "relpath", "expanduser", "mkdir", "makedirs",
     "read_text", "write_text", "read_bytes", "write_bytes", "unlink",
     "rmtree", "copy", "copytree", "move", "glob", "iglob", "rglob", "stat",
@@ -109,17 +128,35 @@ JOINING = frozenset({"join", "joinpath"})
 
 #: Argparse destinations whose default is a path. An argparse default is the
 #: namer nobody finds when relocating, because it reads as configuration.
-PATH_OPTIONS = ("path", "dir", "out", "outdir", "output", "records", "into",
-                "to", "from", "file", "root", "store", "log", "dest")
+#:
+#: Split by how much the WORD alone proves. `--path`, `--dir`, `--outdir` are
+#: about paths and essentially nothing else, so the name carries it. `out`,
+#: `to`, `from`, `log`, `dest`, `output` are ordinary option words: matching
+#: on those alone reported `--log-level`'s default as the directory `INFO/`,
+#: `--output-format`'s as `json/`, `--to`'s as an email address, and
+#: `--dest-state`'s as `pending/`. Those need the VALUE to corroborate.
+STRONG_PATH_OPTIONS = ("path", "dir", "dirs", "directory", "outdir", "folder",
+                       "filename", "filepath", "pathname", "workdir")
+
+#: `records` used to sit in this list -- the directory name of the single tree
+#: this check was first tuned against, baked into a general-purpose checker.
+#: That is a tool memorising its test set, and it is removed.
+WEAK_PATH_OPTIONS = ("out", "output", "into", "to", "from", "file", "root",
+                     "store", "log", "dest", "target", "source")
+
+#: The union, kept under its original name because something outside this
+#: module may import it.
+PATH_OPTIONS = STRONG_PATH_OPTIONS + WEAK_PATH_OPTIONS
 
 #: Heads that are not directories however much they look like one. `text/html`
 #: is a media type, and the first run of this check duly accused four files of
 #: scattering `application/` -- which was `"application/json"`, correctly
 #: written in all four.
 #: `http:` and `https:` are NOT here: `_is_path` rejects a scheme by its
-#: trailing colon, so listing them would be a second rule doing the first
-#: rule's job -- and the one place a duplicated guard already caused a bug was
-#: this same pair of functions.
+#: trailing colon. Listing them here would be a THIRD rule: `take()` already
+#: rejects `http://` at collection and `_is_path` rejects it again, so the
+#: guard is duplicated as it stands. Said the other way round for a while,
+#: which was wrong about its own code.
 NOT_DIRECTORIES = ("application", "text", "audio", "image", "video",
                    "multipart", "font", "message", "model", "example")
 
@@ -141,8 +178,11 @@ def _code_only(path: Path, text: str, strip_strings: bool = False) -> str:
     a different and much smaller problem than a coupling, and reporting it as
     one is the noise that gets a checker switched off.
 
-    Only BARE string expressions are dropped. A string assigned to a name is
-    the coupling itself, not a description of one.
+    Only LEADING docstrings are dropped -- a module's, a class's, a
+    function's. Said "bare string expressions" for a while, which claims more
+    than it does: a bare string anywhere else survives. A string assigned to a
+    name survives too, and should: it is the coupling itself, not a
+    description of one.
 
     `strip_strings` empties string CONTENTS as well, for the checks where a
     match inside a quote means nothing. A call is not a string literal: naming
@@ -219,11 +259,43 @@ def _is_test(path: Path) -> bool:
     return name.startswith("test_") or "_test." in name or ".test." in name
 
 
+def _tracked(root: Path) -> set | None:
+    """What git says belongs to this project, or None if git cannot say.
+
+    The best available definition of "the project's own source". A directory
+    walk cannot tell a module from a build artefact or from a second copy of
+    the whole repo sitting in `.claude/worktrees/`, and both were counted:
+    ten of thirty-nine findings across a forty-two project sweep were noise
+    from exactly that, concentrated enough to make two projects look far
+    worse than they were.
+
+    Returns None rather than an empty set when git is unavailable, the
+    directory is not a repository, or nothing is tracked -- the walk is the
+    fallback in every one of those cases, because scanning nothing is a worse
+    answer than scanning too much.
+    """
+    try:
+        done = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"],
+            capture_output=True, timeout=30, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    names = [n for n in done.stdout.decode("utf-8", "replace").split("\0") if n]
+    if not names:
+        return None
+    return {(root / n).resolve() for n in names}
+
+
 def _sources(root: Path):
+    tracked = _tracked(root)
     for path in root.rglob("*"):
         if not path.is_file() or path.suffix not in SOURCE_SUFFIXES:
             continue
         if set(path.parts) & SKIP_DIRS:
+            continue
+        if tracked is not None and path.resolve() not in tracked:
             continue
         yield path
 
@@ -441,9 +513,19 @@ def _python_path_strings(text: str) -> set:
                 for a in node.args:
                     words.update(re.split(r"[-_]+",
                                           _literal_of(a).lstrip("-").lower()))
-                if words & set(PATH_OPTIONS):
+                strong = bool(words & set(STRONG_PATH_OPTIONS))
+                weak = bool(words & set(WEAK_PATH_OPTIONS))
+                if strong or weak:
                     for kw in node.keywords:
-                        if kw.arg in ("default", "const"):
+                        if kw.arg not in ("default", "const"):
+                            continue
+                        # A strong word (`--outdir`) proves it by itself. A
+                        # weak one (`--log-level`, `--to`, `--dest-state`) is
+                        # an ordinary option word and needs the value to
+                        # agree, or the default `INFO` is reported as a
+                        # directory scattered across five files.
+                        if strong or _value_looks_like_a_path(
+                                _literal_of(kw.value)):
                             take(kw.value)
 
         # root / "records" / name -- a join is a namer with no slash in it,
@@ -452,6 +534,88 @@ def _python_path_strings(text: str) -> set:
             for side in (node.left, node.right):
                 take(side)
 
+    return found
+
+
+def _value_looks_like_a_path(literal: str) -> bool:
+    """Does this VALUE read as a path, independently of what it was called?
+
+    Used to corroborate the weak option words. Deliberately generous about
+    what a path looks like and deliberately silent on bare words: `records`
+    is a perfectly good path value, but so is `INFO` a perfectly good log
+    level, and nothing about either string distinguishes them. Where the
+    option name is strong the name decides; where it is weak and the value
+    says nothing, the honest answer is to stay quiet.
+    """
+    if not literal:
+        return False
+    if "@" in literal or "://" in literal:
+        return False
+    return (literal.startswith(("~", "/", "./", "../"))
+            or "/" in literal or "\\" in literal
+            or literal.lower().endswith(DATA_SUFFIXES))
+
+
+def _python_bare_strings(text: str) -> set:
+    """Bare strings that could be a directory handed to something.
+
+    The second pass used to be a REGEX over the file's text, matching any
+    quoted occurrence of a confirmed head. A regex cannot tell
+    `capture.shoot(bod, cam, "records")` -- a directory passed positionally,
+    which is the case the pass exists for -- from `cell["genes"]`, which is a
+    dict lookup and names no directory at all. So one project's `Path("genes")`
+    in four files plus `cell["genes"]` in ten reported `genes` as a scattered
+    path in FOURTEEN, and any ordinary word confirmed anywhere was amplified
+    the same way.
+
+    The syntax knows the difference, so this asks it. Collected: strings in
+    call-argument position, and strings assigned to a name. Excluded, because
+    none of them can be a path being named:
+
+        d["genes"]              a subscript -- a lookup, not a path
+        {"role": "user"}        a dict KEY
+        if x == "pending"       a comparison operand
+        raise E("no records")   an exception's message
+
+    Nothing here is evidence on its own. It is only ever consulted for heads
+    the project has ALREADY proved to be directories.
+    """
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return set()
+
+    skip: set = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript):
+            skip.add(id(node.slice))
+        elif isinstance(node, ast.Dict):
+            for key in node.keys:
+                if key is not None:
+                    skip.add(id(key))
+        elif isinstance(node, ast.Compare):
+            for side in [node.left, *node.comparators]:
+                skip.add(id(side))
+        elif isinstance(node, ast.Raise):
+            for child in ast.walk(node):
+                skip.add(id(child))
+
+    found: set = set()
+    for node in ast.walk(tree):
+        candidates = []
+        if isinstance(node, ast.Call):
+            candidates = [*node.args,
+                          *(kw.value for kw in node.keywords)]
+        elif isinstance(node, ast.Assign):
+            candidates = [node.value]
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            candidates = [node.value]
+        for child in candidates:
+            if id(child) in skip:
+                continue
+            literal = _literal_of(child)
+            if literal:
+                found.add(literal)
     return found
 
 
@@ -474,7 +638,7 @@ def _is_path(literal: str) -> bool:
     of scattering a media type accused four files of scattering a media type.
     A rule applied on one path out of two is not applied.
     """
-    head = literal.split("/")[0].lower()
+    head = literal.replace("\\", "/").split("/")[0].lower()
     if head in NOT_DIRECTORIES:
         return False
     # A URL is an address, not a path in this tree.
@@ -487,7 +651,25 @@ def _path_head(literal: str) -> str:
     `records/eye.jsonl` and `records/ear.jsonl` are two literals and ONE idea.
     Counting them separately reports two small problems and misses the large
     one, which is that the directory itself is named in seventeen places.
+
+    ABSOLUTE paths were silent entirely, which #3 named and the fix for #3
+    missed. Splitting on `/` and taking `[0]` yields `""` for anything
+    starting with a slash, so no absolute directory was ever grouped and
+    `/var/lib/records/x.json` across five files reported nothing. For those
+    the head is the PARENT directory rather than the first segment: the whole
+    prefix is the idea being repeated, and `/var` alone would lump
+    `/var/log` together with `/var/lib`.
+
+    Backslashes are normalised, so a Windows separator names the same
+    directory a forward slash does.
     """
+    literal = literal.replace("\\", "/")
+    if literal.startswith("//"):
+        # `//cdn.example.com/x.js` is an address, not an absolute path.
+        return ""
+    if literal.startswith("/"):
+        parent = literal.rsplit("/", 1)[0]
+        return parent if parent.strip("/") else ""
     head = literal.split("/")[0]
     if not head or "." in head or head in NAVIGATION:
         return ""
@@ -508,8 +690,10 @@ def _scattered_paths(files: list, root: Path, report: Report) -> None:
 
     The second is the harder one and the one a literal-only check cannot see.
     Measured on the project that prompted this: `records/eye.jsonl` appears in
-    8 files, which is worth knowing; `records/` appears in 17 across 33
+    8 files, which is worth knowing; `records/` appears in 22 across 40
     distinct paths, which is why the directory could not be moved at all.
+    (17 across 33 stood here for a while: the pre-rework undercount, left
+    behind by the commit whose own message called it an undercount.)
     """
     by_literal: dict = {}
     by_head: dict = {}
@@ -557,10 +741,13 @@ def _scattered_paths(files: list, root: Path, report: Report) -> None:
     # It cannot manufacture a false positive on a project that never treats the
     # string as a path, which is exactly what went wrong when shape alone
     # decided: nothing confirms `Qwen` or `os/exec`, so nothing looks for them.
-    # Only heads this project has used as a DIRECTORY -- something appearing
-    # before a slash, or joined with `/`. A head confirmed only by a bare
-    # string is not evidence of a directory, and promoting one turned the dict
-    # key "genes" into a scattered path in fourteen files.
+    #
+    # What the head is confirmed BY matters. Everything in `by_head` arrived
+    # through a genuine path context -- a path call, a `/` join, an f-string,
+    # a corroborated argparse default -- so counting those is sound. What was
+    # not sound was the promotion: it matched any quoted occurrence with a
+    # regex, so `cell["genes"]` counted as naming a directory. That is now an
+    # AST question, asked by `_python_bare_strings`.
     confirmed = {h for h, seen in by_head.items()
                  if any(name != h for name in names_under.get(h, ()))
                  or len(seen) >= SCATTER_AT}
@@ -568,19 +755,20 @@ def _scattered_paths(files: list, root: Path, report: Report) -> None:
         if _is_test(path) or _is_config(path) or path.suffix != ".py":
             continue
         try:
-            code = _code_only(path, path.read_text(errors="replace"))
+            bare = _python_bare_strings(path.read_text(errors="replace"))
         except OSError:
             continue
         where = str(path.relative_to(root))
-        for head in confirmed:
-            for hit in re.finditer(
-                    rf"""['"]({re.escape(head)}(?:/[^'"]*)?)['"]""", code):
-                by_head.setdefault(head, set()).add(where)
-                # And by literal, or a directory with only ONE name under it
-                # reports through the literal branch and never sees these --
-                # which left two files uncounted the first time.
-                by_literal.setdefault(hit.group(1), set()).add(where)
-                names_under.setdefault(head, set()).add(hit.group(1))
+        for literal in bare:
+            head = _path_head(literal) if "/" in literal else literal
+            if head not in confirmed:
+                continue
+            by_head.setdefault(head, set()).add(where)
+            # And by literal, or a directory with only ONE name under it
+            # reports through the literal branch and never sees these --
+            # which left two files uncounted the first time.
+            by_literal.setdefault(literal, set()).add(where)
+            names_under.setdefault(head, set()).add(literal)
 
     for head, paths in sorted(by_head.items()):
         if len(paths) < SCATTER_AT:
