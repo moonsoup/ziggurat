@@ -78,3 +78,44 @@ check that is red from the start teaches everyone to ignore it.
   not reinvented here
 - [CodeScene on change coupling](https://docs.enterprise.codescene.io/versions/4.5.0/guides/technical/change-coupling.html)
   and Tornhill, *Your Code as a Crime Scene*
+
+## Hooking it in without it costing too much
+
+Running a full report on every action is too expensive to live with. Running it
+never is how a project drifts. The way out is that the two questions have very
+different prices:
+
+    ziggurat drift <path>     is it even possible that the architecture moved?
+    ziggurat report <path>    what does it say?
+
+`drift` is silent and cheap until the SHAPE moves, and only then does it pay
+for the report.
+
+**Shape is three things, and deliberately not the code:**
+
+1. which modules exist
+2. which of them are entry points
+3. what top-level names each one defines -- functions, classes, constants
+
+That list is not arbitrary. It is exactly what every finding this tool produces
+depends on. Entry-point sprawl is (2). Constants scattered across modules is
+(3). Dynamic loading and module coupling are (1). If none of them moved, no new
+finding can exist, and the expensive report would say what it said last time.
+
+Function bodies are never read. An edit inside a function cannot create an
+entry point, scatter a constant or add a module -- however wrong that edit is,
+it is not ARCHITECTURALLY wrong, and that distinction is the whole saving.
+
+Measured on a 153-module project: 0.14s for the gate against 0.57s for the
+report, and the gap widens on a large repository because the history analyser
+walks git log while the gate only parses top-level syntax.
+
+**Where to hook it.** Wherever edits land -- a pre-commit hook, an agent's
+post-edit step, a save hook. It exits 0 and says one line when nothing moved.
+
+**What it cannot see.** Change coupling is history, not shape: two files can
+begin changing together without either being touched structurally. A shape gate
+will never catch that. So this is not a substitute for the full report -- it
+catches the structural half immediately and leaves the historical half to a
+slower rhythm, which is the part that belongs in planning rather than in a
+hook.
