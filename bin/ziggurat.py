@@ -3,6 +3,8 @@
 
     ziggurat report <path>            what the structure and the history say
     ziggurat report <path> --only structure
+    ziggurat report <path> --full     every site, and what was set aside
+    ziggurat report <path> --json     structured, for an agent to plan against
     ziggurat drift <path>             report ONLY if the shape has moved
 
 `drift` exists because running a full report on every action is too expensive
@@ -37,6 +39,12 @@ def main(argv=None) -> int:
     r.add_argument("path")
     r.add_argument("--only", nargs="*", default=None,
                    help="run only these analysers (structure, history)")
+    r.add_argument("--full", action="store_true",
+                   help="every site behind every finding, and why each "
+                        "inconclusive observation was set aside")
+    r.add_argument("--json", action="store_true",
+                   help="the same report, structured, for a reader that is "
+                        "not a person")
 
     d = sub.add_parser("drift", help="report only if the shape has moved")
     d.add_argument("path")
@@ -49,7 +57,12 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if args.command == "report":
         result = reporting.analyse(args.path, only=args.only)
-        print(result.render())
+        if args.json:
+            import json
+
+            print(json.dumps(result.as_dict(), indent=2, sort_keys=True))
+            return 0
+        print(result.render(full=args.full))
         # Findings are not failures. This tool reports; a project decides what
         # to do about it, which is the difference between a report and a gate.
         return 0

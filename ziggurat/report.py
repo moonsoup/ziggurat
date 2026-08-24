@@ -31,4 +31,8 @@ def analyse(root, only=None) -> Report:
             continue
         combined.findings.extend(part.findings)
         combined.skipped.extend(part.skipped)
+        # Carried, not dropped. An analyser's inconclusive observations are
+        # still observations, and losing them here would make the composed
+        # report quieter than the analyser that produced it.
+        combined.quiet.extend(part.quiet)
     return combined

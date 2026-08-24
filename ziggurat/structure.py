@@ -364,6 +364,7 @@ def analyse(root) -> Report:
     _scattered_constants(files, root, report)
     _scattered_paths(files, root, report)
     _sibling_from_global(files, root, report)
+    _singleton_bottleneck(files, root, report)
     return report
 
 
@@ -788,6 +789,16 @@ def _path_head(literal: str) -> str:
     # relocate. `?` and `[` are the other two ways to write one.
     if any(ch in literal.split("/")[0] for ch in "*?["):
         return ""
+    # A COMMAND IS NOT A DIRECTORY. `"rm -f /boot/firmware/firstrun.sh"` is a
+    # shell line that happens to contain a path, and taking its head yielded
+    # `rm -f /` -- reported as one idea named in six files, which is true of
+    # the string and false about the codebase. A directory component with a
+    # space in it is a sentence, not a path; this project has none.
+    #
+    # The rule this check keeps relearning: ask whether a string is USED as a
+    # path, not whether it LOOKS like one.
+    if " " in literal.rsplit("/", 1)[0]:
+        return ""
     # `~` is the home directory, so `~/` as a head is every home-relative path
     # in the project lumped together and no directory at all. Treated like an
     # absolute path -- the parent IS the idea being repeated -- so
@@ -1155,3 +1166,250 @@ def _sibling_from_global(files: list, root: Path, report: Report) -> None:
                                 f"`{part.split('.')[0]}.parent / ...`"),
                 ))
                 break
+
+
+# --- one of a thing the domain has many of ----------------------------------
+
+#: How many modules must read a config scalar before its singularity is worth
+#: reporting. Same precedent as SCATTER_AT: a count, not a judgement.
+SINGLETON_AT = 4
+
+#: Annotations and literals that mean "one value", as opposed to a container.
+#: A field annotated `dict` or `list` is already plural and is not the fault
+#: this looks for.
+SCALAR_ANNOTATIONS = frozenset({"str", "int", "float", "bool", "bytes"})
+
+PLURAL_ANNOTATIONS = frozenset({"dict", "list", "set", "tuple", "frozenset",
+                                "Dict", "List", "Set", "Tuple", "Sequence",
+                                "Mapping", "Iterable"})
+
+
+def _annotation_name(node) -> str:
+    """The bare name of an annotation, ignoring subscripts and modules."""
+    while isinstance(node, ast.Subscript):
+        node = node.value
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    if isinstance(node, ast.Name):
+        return node.id
+    return ""
+
+
+def _is_scalar_value(node) -> bool:
+    """Does this default look like ONE value rather than a container?
+
+    A `field(default_factory=lambda: _env(...))` is treated as scalar, because
+    what it produces is a string -- the wrapper is about WHEN it is read, not
+    about how many there are.
+    """
+    if isinstance(node, ast.Constant):
+        return not isinstance(node.value, (list, dict, set, tuple))
+    if isinstance(node, (ast.List, ast.Dict, ast.Set, ast.Tuple)):
+        return False
+    if isinstance(node, ast.Call):
+        # `CONFIG = Config(...)` is a constructed object, not a setting. It is
+        # read by everything BY DESIGN -- that is what a config object is for
+        # -- so counting its readers says nothing about arity. A lowercase or
+        # dotted callable is left alone: `field(...)` and `_env(...)` produce
+        # values, and those are settings.
+        func = node.func
+        name = func.id if isinstance(func, ast.Name) else ""
+        if name[:1].isupper():
+            return False
+    return True
+
+
+def config_scalars(files: list, root: Path) -> dict:
+    """Every scalar a config module names, and where it was named.
+
+    Config modules are found the way the rest of this file finds them, by
+    stem -- `_is_config`. Fields inside a class body count: a config held as a
+    dataclass is still a config.
+    """
+    found: dict = {}
+    for path in files:
+        if not _is_config(path) or _is_test(path):
+            continue
+        try:
+            tree = ast.parse(path.read_text(errors="replace"))
+        except (OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            name = annotation = ""
+            value = None
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                name = node.target.id
+                annotation = _annotation_name(node.annotation)
+                value = node.value
+            elif isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                    and isinstance(node.targets[0], ast.Name):
+                name = node.targets[0].id
+                value = node.value
+            if not name or name.startswith("_"):
+                continue
+            if annotation in PLURAL_ANNOTATIONS:
+                continue
+            if annotation and annotation not in SCALAR_ANNOTATIONS:
+                continue
+            if value is not None and not _is_scalar_value(value):
+                continue
+            found.setdefault(name, str(path.relative_to(root)))
+    return found
+
+
+def scalar_readers(files: list, root: Path, names: set) -> dict:
+    """Which modules read each name, by attribute access or bare reference.
+
+    Attribute access is what matters -- `CONFIG.body_host` -- but a bare name
+    counts too, because a config that exports module-level constants is read
+    that way and is the same fault.
+    """
+    where: dict = {name: set() for name in names}
+    for path in files:
+        if _is_config(path) or _is_test(path):
+            continue
+        try:
+            tree = ast.parse(path.read_text(errors="replace"))
+        except (OSError, SyntaxError):
+            continue
+        seen = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr in where:
+                seen.add(node.attr)
+            elif isinstance(node, ast.Name) and node.id in where:
+                seen.add(node.id)
+        for name in seen:
+            where[name].add(str(path.relative_to(root)))
+    return where
+
+
+def collections_of(files: list, root: Path) -> list:
+    """Classes whose instances are held in a container somewhere.
+
+    THIS IS THE HALF THAT KEEPS THE CHECK QUIET. A port or a timeout is
+    legitimately one value and has no registry of peers, so it never pairs
+    and is never reported. Only a scalar that duplicates a field on a thing
+    the codebase ALREADY keeps many of can be a bottleneck.
+
+    The link is by name: `class Node` pairs with a container called `nodes`.
+    Structural and checkable -- no inference about what a container holds.
+    """
+    classes: dict = {}
+    containers: dict = {}
+    for path in files:
+        if _is_test(path):
+            continue
+        try:
+            tree = ast.parse(path.read_text(errors="replace"))
+        except (OSError, SyntaxError):
+            continue
+        here = str(path.relative_to(root))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                fields = set()
+                for item in node.body:
+                    if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+                        fields.add(item.target.id)
+                if fields:
+                    classes.setdefault(node.name, (here, fields))
+            target = ""
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                if _annotation_name(node.annotation) in PLURAL_ANNOTATIONS:
+                    target = node.target.id
+            elif isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                    and isinstance(node.targets[0], ast.Name) \
+                    and isinstance(node.value, (ast.Dict, ast.List, ast.Set)):
+                target = node.targets[0].id
+            if target:
+                containers.setdefault(target.lower(), set()).add(here)
+
+    out = []
+    for name, (where, fields) in sorted(classes.items()):
+        plural = name.lower() + "s"
+        if plural in containers:
+            out.append((name, where, fields, plural,
+                        sorted(containers[plural])))
+    return out
+
+
+def _matching_field(scalar: str, fields: set) -> str:
+    """Does this scalar duplicate a field on the collected thing?
+
+    `body_host` matches `host`: the config's name is the field's name with a
+    qualifier in front, which is exactly how a singleton gets written -- THE
+    body's host, as though there were only one.
+    """
+    if scalar in fields:
+        return scalar
+    for field_name in sorted(fields):
+        if len(field_name) > 2 and scalar.endswith("_" + field_name):
+            return field_name
+    return ""
+
+
+def _singleton_bottleneck(files: list, root: Path, report: Report) -> None:
+    """One value where the domain has many, under a registry that already
+    knows better.
+
+    Not a scattered constant: the value may be correctly centralised in one
+    config module and read from there, which is the right pattern. The fault
+    is its ARITY. `CONFIG.body_host` was read by ten modules while
+    `fleet.Node.host` existed and `Fleet.nodes` held many of them -- a
+    single-body assumption sitting underneath a complete multi-node registry,
+    invisible to every check that looks for duplication.
+
+    Two structural facts, both required, so there is nothing to argue about
+    and nothing to game.
+    """
+    scalars = config_scalars(files, root)
+    if not scalars:
+        return
+    readers = scalar_readers(files, root, set(scalars))
+    collected = collections_of(files, root)
+
+    quiet = []
+    for scalar, declared in sorted(scalars.items()):
+        seen_in = sorted(readers.get(scalar, ()))
+        if len(seen_in) < SINGLETON_AT:
+            continue
+        pair = None
+        for name, where, fields, plural, holders in collected:
+            field_name = _matching_field(scalar, fields)
+            if field_name:
+                pair = (name, where, field_name, plural, holders)
+                break
+        if pair is None:
+            # A widely-read scalar with no registry of peers. Real
+            # information, kept out of the decision path.
+            quiet.append({"name": scalar, "declared_in": declared,
+                          "read_by": seen_in})
+            continue
+
+        name, where, field_name, plural, holders = pair
+        report.add(Finding(
+            check="singleton-bottleneck",
+            summary=(f"{scalar} is one value, read by {len(seen_in)} modules, "
+                     f"while {name}.{field_name} exists and {plural} holds many"),
+            evidence=(f"{declared} names a single {scalar}, read by "
+                      f"{len(seen_in)} modules: {', '.join(seen_in[:5])}"
+                      f"{'...' if len(seen_in) > 5 else ''}. Meanwhile {where} "
+                      f"defines {name} with a {field_name} field, and {plural} "
+                      f"holds many of them ({', '.join(holders[:3])}). The "
+                      "value is not scattered -- it is centralised, which is "
+                      "correct -- so no duplication check can see this. What "
+                      "is wrong is its arity: one, under a registry that "
+                      "already keeps many."),
+            confidence=Confidence.STRUCTURAL,
+            paths=tuple(seen_in),
+            suggestion=(f"read {field_name} from the {name} being acted on "
+                        f"rather than from the config, and let {scalar} be a "
+                        "default for the single-node case instead of the "
+                        "only answer."),
+            detail={"scalar": scalar, "declared_in": declared,
+                    "read_by": seen_in, "collected_class": name,
+                    "collected_in": where, "matching_field": field_name,
+                    "container": plural, "container_in": holders},
+        ))
+
+    if quiet:
+        report.quiet.extend(sorted(quiet, key=lambda item: -len(item["read_by"])))
