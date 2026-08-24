@@ -167,33 +167,22 @@ def test_it_is_a_structural_fact_not_a_judgement(tmp_path):
     assert hit.confidence is Confidence.STRUCTURAL
 
 
-# --- the case it was built for ---------------------------------------------
+# --- a synthetic stand-in for the case it was built for ---------------------
 
-def test_it_finds_the_real_one_in_incarnation():
-    """body_host: one value, 14 readers, beside a complete Node/Fleet
-    registry. This is the fault the check exists for; if it stops finding it,
-    the check has drifted."""
-    where = Path.home() / "Software" / "incarnation"
-    if not where.is_dir():
-        import pytest
-        pytest.skip("incarnation is not checked out here")
-    hits = {f.detail.get("scalar") for f in S.analyse(where).findings
-            if f.check == "singleton-bottleneck"}
-    assert "body_host" in hits
+def test_the_shape_it_was_built_for(tmp_path):
+    """The real instance of this lives in another project: one host read by
+    fourteen modules beside a complete Node/Fleet registry.
 
-
-# --- a command is not a directory ------------------------------------------
-
-def test_a_shell_command_containing_a_path_is_not_a_directory():
-    """`rm -f /boot/firmware/firstrun.sh` was reported as the directory
-    `rm -f /`, named in six files -- true of the string, false about the
-    codebase. The rule this check keeps relearning: ask whether a string is
-    USED as a path, not whether it LOOKS like one."""
-    assert S._path_head("rm -f /boot/firmware/firstrun.sh") == ""
-    assert S._path_head("sudo install -m 600 /etc/watchpi/x") == ""
-    assert S._path_head("cat > /boot/firmware/config.txt") == ""
-
-
-def test_a_real_path_still_has_a_head():
-    assert S._path_head("records/eye.jsonl") == "records"
-    assert S._path_head("/var/lib/watchpi/nodes.json") == "/var/lib/watchpi"
+    That project's regression test belongs to THAT project, not here -- a
+    tool's suite reaching into a consumer's checkout couples them, and skips
+    silently on any machine where the consumer is absent. This is the same
+    shape, built from nothing.
+    """
+    root = _project(tmp_path, {
+        "config.py": "class Config:\n    body_host: str = '10.0.0.1'\n",
+        "fleet.py": FLEET,
+        **_readers(14)})
+    hit = [f for f in S.analyse(root).findings
+           if f.check == "singleton-bottleneck"][0]
+    assert len(hit.detail["read_by"]) == 14
+    assert hit.detail["collected_class"] == "Node"

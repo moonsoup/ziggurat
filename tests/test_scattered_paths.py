@@ -236,3 +236,29 @@ def test_a_dict_key_is_not_a_directory(tmp_path) -> None:
     files = {f"m{i}.py": 'x = {"genes": [], "id": 1}\n' for i in range(6)}
     files["one.py"] = 'p = Path("genes")\n'
     assert findings(project(tmp_path, files)) == []
+
+
+# --- a command is not a directory ------------------------------------------
+
+def test_a_shell_command_containing_a_path_has_no_head():
+    """`rm -f /boot/firmware/firstrun.sh` was reported as the directory
+    `rm -f /`, named in six files -- true of the string and false about the
+    codebase. A directory component with a space in it is a sentence.
+
+    Third time this check has had to relearn the same rule: ask whether a
+    string is USED as a path, not whether it LOOKS like one."""
+    from ziggurat import structure as S
+
+    assert S._path_head("rm -f /boot/firmware/firstrun.sh") == ""
+    assert S._path_head("sudo install -m 600 /etc/watchpi/x") == ""
+    assert S._path_head("cat > /boot/firmware/config.txt") == ""
+    assert S._path_head("systemctl enable --now /etc/systemd/system/x") == ""
+
+
+def test_a_real_path_still_has_its_head():
+    """The guard must not swallow the paths the check exists to group."""
+    from ziggurat import structure as S
+
+    assert S._path_head("records/eye.jsonl") == "records"
+    assert S._path_head("/var/lib/watchpi/nodes.json") == "/var/lib/watchpi"
+    assert S._path_head("incarnation/commands/fleet.py") == "incarnation/commands"
