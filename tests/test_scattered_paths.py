@@ -261,4 +261,7 @@ def test_a_real_path_still_has_its_head():
 
     assert S._path_head("records/eye.jsonl") == "records"
     assert S._path_head("/var/lib/watchpi/nodes.json") == "/var/lib/watchpi"
-    assert S._path_head("incarnation/commands/fleet.py") == "incarnation/commands"
+    # Relative paths group on the FIRST segment, absolute ones on the parent
+    # -- documented in _path_head, and asserted here so the guard above
+    # cannot quietly change it.
+    assert S._path_head("incarnation/commands/fleet.py") == "incarnation"
