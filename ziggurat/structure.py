@@ -1347,6 +1347,79 @@ def _matching_field(scalar: str, fields: set) -> str:
     return ""
 
 
+def _first_literal(node):
+    """The first plain value inside a default expression, or None.
+
+    `port: int = 8022` gives 8022. `panel_port: int = field(default_factory=
+    lambda: int(_env("WATCHNODE_PANEL_PORT", "9996")))` gives "9996" -- the
+    fallback buried in the env lookup, which is the value the code runs with
+    when nothing is set. Good enough to compare two defaults; not a general
+    evaluator, and it does not pretend to be one.
+    """
+    if node is None:
+        return None
+
+    def plain(value):
+        return (isinstance(value, ast.Constant)
+                and not isinstance(value.value, bool)
+                and isinstance(value.value, (str, int, float)))
+
+    # AN ENV LOOKUP HIDES THE VALUE BEHIND ITS OWN NAME. Taking the first
+    # constant out of `_env("WATCHNODE_PANEL_PORT", "9996")` returns the
+    # variable name, so the evidence read "8022 against 'WATCHNODE_PANEL_PORT'"
+    # -- the right conclusion reached for the wrong reason, which is not worth
+    # having. The fallback is the last argument by convention, and it is the
+    # value the code actually runs with when nothing is set.
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Call) and len(sub.args) >= 2 \
+                and all(plain(a) for a in sub.args):
+            return sub.args[-1].value
+    for sub in ast.walk(node):
+        if plain(sub):
+            return sub.value
+    return None
+
+
+def scalar_defaults(files: list, root: Path) -> dict:
+    """What each config scalar defaults to, by name."""
+    out: dict = {}
+    for path in files:
+        if not _is_config(path) or _is_test(path):
+            continue
+        try:
+            tree = ast.parse(path.read_text(errors="replace"))
+        except (OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                out.setdefault(node.target.id, _first_literal(node.value))
+            elif isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                    and isinstance(node.targets[0], ast.Name):
+                out.setdefault(node.targets[0].id, _first_literal(node.value))
+    return out
+
+
+def field_defaults(files: list, root: Path) -> dict:
+    """What each class field defaults to, keyed by (class, field)."""
+    out: dict = {}
+    for path in files:
+        if _is_test(path):
+            continue
+        try:
+            tree = ast.parse(path.read_text(errors="replace"))
+        except (OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            for item in node.body:
+                if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+                    out.setdefault((node.name, item.target.id),
+                                   _first_literal(item.value))
+    return out
+
+
+
 def _singleton_bottleneck(files: list, root: Path, report: Report) -> None:
     """One value where the domain has many, under a registry that already
     knows better.
@@ -1366,6 +1439,17 @@ def _singleton_bottleneck(files: list, root: Path, report: Report) -> None:
         return
     readers = scalar_readers(files, root, set(scalars))
     collected = collections_of(files, root)
+    # WHAT EACH SIDE DEFAULTS TO. The field is matched by NAME, and a name
+    # match is not a match of meaning: `panel_port` (9996, a UDP channel) was
+    # paired with `Node.port` (8022, ssh) and the suggestion told the reader
+    # to use the second for the first, which would have sent panel traffic to
+    # the ssh port. The singleton was real; the field named was wrong.
+    #
+    # Reported as evidence, never as a filter. Differing defaults do not make
+    # a finding false -- they make the named field the wrong remedy, and that
+    # is the reader's call to make with the numbers in front of them.
+    defaults = scalar_defaults(files, root)
+    class_defaults = field_defaults(files, root)
 
     quiet = []
     for scalar, declared in sorted(scalars.items()):
@@ -1386,6 +1470,31 @@ def _singleton_bottleneck(files: list, root: Path, report: Report) -> None:
             continue
 
         name, where, field_name, plural, holders = pair
+        # AN EMPTY DEFAULT IS A PLACEHOLDER, NOT A VALUE. `host: str = ""` is
+        # the commonest way to write "no default", and comparing a real value
+        # against it would caution on almost every well-formed dataclass --
+        # noise that would train a reader to skip the one caution that means
+        # something.
+        def stated(value):
+            return None if value is None or value == "" else value
+
+        mine = stated(defaults.get(scalar))
+        theirs = stated(class_defaults.get((name, field_name)))
+        differ = (mine is not None and theirs is not None
+                  and str(mine) != str(theirs))
+        caution = ""
+        remedy = (f"read {field_name} from the {name} being acted on "
+                  f"rather than from the config, and let {scalar} be a ")
+        if differ:
+            caution = (f" NOTE: they do not hold the same kind of value -- "
+                       f"{scalar} defaults to {mine!r} and {name}.{field_name} "
+                       f"to {theirs!r}. The field was matched by NAME, so this "
+                       f"is probably not the field to read; the arity is still "
+                       f"wrong, and {name} likely needs a {scalar} of its own.")
+            remedy = (f"give {name} its own {scalar} -- {field_name} already "
+                      f"holds something else ({theirs!r} against {mine!r}) -- "
+                      f"and read it from the {name} being acted on, letting "
+                      f"{scalar} be a ")
         report.add(Finding(
             check="singleton-bottleneck",
             summary=(f"{scalar} is one value, read by {len(seen_in)} modules, "
@@ -1398,17 +1507,18 @@ def _singleton_bottleneck(files: list, root: Path, report: Report) -> None:
                       "value is not scattered -- it is centralised, which is "
                       "correct -- so no duplication check can see this. What "
                       "is wrong is its arity: one, under a registry that "
-                      "already keeps many."),
+                      "already keeps many." + caution),
             confidence=Confidence.STRUCTURAL,
             paths=tuple(seen_in),
-            suggestion=(f"read {field_name} from the {name} being acted on "
-                        f"rather than from the config, and let {scalar} be a "
-                        "default for the single-node case instead of the "
-                        "only answer."),
+            suggestion=(remedy
+                        + "default for the single-node case instead of the "
+                          "only answer."),
             detail={"scalar": scalar, "declared_in": declared,
                     "read_by": seen_in, "collected_class": name,
                     "collected_in": where, "matching_field": field_name,
-                    "container": plural, "container_in": holders},
+                    "container": plural, "container_in": holders,
+                    "scalar_default": mine, "field_default": theirs,
+                    "defaults_differ": differ},
         ))
 
     if quiet:

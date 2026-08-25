@@ -186,3 +186,72 @@ def test_the_shape_it_was_built_for(tmp_path):
            if f.check == "singleton-bottleneck"][0]
     assert len(hit.detail["read_by"]) == 14
     assert hit.detail["collected_class"] == "Node"
+
+
+# --- a name match is not a match of meaning ---------------------------------
+
+DIFFERENT_PORTS = '''
+class Config:
+    panel_port: int = 9996
+    body_host: str = "192.168.1.223"
+'''
+
+
+def test_a_field_matched_by_name_that_holds_something_else_says_so(tmp_path):
+    """`panel_port` (9996, a UDP channel) was paired with `Node.port` (8022,
+    ssh) purely because the names matched, and the suggestion told the reader
+    to use the second for the first. Acting on it would have sent panel
+    traffic to the ssh port -- a wrong remedy delivered with structural
+    confidence, which is worse than no finding at all."""
+    root = _project(tmp_path, {"config.py": DIFFERENT_PORTS, "fleet.py": FLEET,
+                               **_readers(5, "panel_port")})
+    report = S.analyse(root)
+    hit = [f for f in report.findings
+           if f.check == "singleton-bottleneck" and "panel_port" in f.summary]
+    assert len(hit) == 1, "the singleton is real and must still be reported"
+
+    found = hit[0]
+    assert found.detail["defaults_differ"] is True
+    assert str(found.detail["scalar_default"]) == "9996"
+    assert str(found.detail["field_default"]) == "22"
+    # the remedy must not point at the field that holds something else
+    assert "give Node its own panel_port" in found.suggestion
+    assert "read port from the Node" not in found.suggestion
+    assert "not the field to read" in found.evidence
+
+
+def test_matching_defaults_keep_the_plain_remedy(tmp_path):
+    """Differing defaults are evidence, not a filter. When they agree there is
+    nothing to caution about and the straightforward remedy is right."""
+    root = _project(tmp_path, {"config.py": CONFIG, "fleet.py": FLEET,
+                               **_readers(5)})
+    report = S.analyse(root)
+    found = [f for f in report.findings
+             if f.check == "singleton-bottleneck"][0]
+    assert found.detail["defaults_differ"] is False
+    assert "read host from the Node" in found.suggestion
+    assert "not the field to read" not in found.evidence
+
+
+def test_a_default_hidden_behind_an_env_lookup_is_read(tmp_path):
+    """Taking the FIRST constant out of `_env("WATCHNODE_PANEL_PORT", "9996")`
+    returns the variable name, so the evidence read "8022 against
+    'WATCHNODE_PANEL_PORT'" -- the right conclusion for the wrong reason. The
+    fallback is the value the code runs with when nothing is set."""
+    env_config = '''
+from dataclasses import field
+
+def _env(name, fallback):
+    return fallback
+
+class Config:
+    panel_port: int = field(default_factory=lambda: int(_env("WN_PANEL_PORT", "9996")))
+    body_host: str = "192.168.1.223"
+'''
+    root = _project(tmp_path, {"config.py": env_config, "fleet.py": FLEET,
+                               **_readers(5, "panel_port")})
+    report = S.analyse(root)
+    found = [f for f in report.findings
+             if f.check == "singleton-bottleneck" and "panel_port" in f.summary][0]
+    assert str(found.detail["scalar_default"]) == "9996", \
+        "the env var NAME is not the default"
