@@ -105,3 +105,72 @@ def test_what_moved_is_said_not_merely_counted(tmp_path) -> None:
     (root / "b.py").write_text("def helper():\n    pass\n")
     moved = shape.differences(before, shape.shape(root))
     assert all(isinstance(line, str) and line for line in moved)
+
+
+# ------------------------------------------------------------------------- C
+
+C_MODULE = """\
+/* FUN_00401230 @ 0x00401230  segment text */
+
+#include <stdio.h>
+
+typedef unsigned int undefined4;
+
+struct Person {
+    byte Type;
+};
+
+static int g_line_count = 0;
+
+undefined4 * __cdecl Module_Map__GetCell(short x,short y)
+
+{
+  int local_4;
+  if (x < 0) {
+    return 0;
+  }
+  for (local_4 = 0; local_4 < 8; local_4 = local_4 + 1) {
+    g_line_count = g_line_count + 1;
+  }
+  return 0;
+}
+"""
+
+
+def test_c_modules_contribute_their_top_level_names(tmp_path) -> None:
+    root = project(tmp_path, {"src/map.c": C_MODULE})
+    names = shape.shape(root)["modules"]["src/map.c"]["names"]
+    assert "Module_Map__GetCell" in names
+    assert "Person" in names
+    assert "undefined4" in names
+    assert "g_line_count" in names
+
+
+def test_a_c_body_is_as_invisible_as_a_python_one(tmp_path) -> None:
+    root = project(tmp_path, {"src/map.c": C_MODULE})
+    before = shape.shape(root)
+    (root / "src/map.c").write_text(C_MODULE.replace(
+        "    g_line_count = g_line_count + 1;",
+        "    g_line_count = g_line_count + 2;\n    printf(\"%d\", g_line_count);"))
+    assert shape.differences(before, shape.shape(root)) == []
+
+
+def test_control_flow_at_column_zero_is_not_mistaken_for_a_name(tmp_path) -> None:
+    root = project(tmp_path, {"src/odd.c": "int f(void)\n{\nreturn 1;\n}\n"})
+    assert shape.shape(root)["modules"]["src/odd.c"]["names"] == ["f"]
+
+
+def test_a_c_main_is_an_entry_point(tmp_path) -> None:
+    root = project(tmp_path, {
+        "src/main.c": "int main(int argc, char **argv)\n{\n  return 0;\n}\n",
+        "src/lib.c": "int helper(void)\n{\n  return 0;\n}\n",
+    })
+    modules = shape.shape(root)["modules"]
+    assert modules["src/main.c"]["entry"] is True
+    assert modules["src/lib.c"]["entry"] is False
+
+
+def test_the_python_only_walk_is_still_available(tmp_path) -> None:
+    root = project(tmp_path, {"a.py": "x = 1\n", "src/map.c": C_MODULE})
+    assert list(shape.shape(root, suffixes=(".py",))["modules"]) == ["a.py"]
+    assert set(shape.shape(root)["modules"]) == {"a.py", "src/map.c"}

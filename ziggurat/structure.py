@@ -58,7 +58,8 @@ SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist",
 #: actually meant.
 SKIP_PATHS = ((".claude", "worktrees"),)
 
-SOURCE_SUFFIXES = {".py", ".sh", ".js", ".ts", ".rb", ".go", ".java", ".kt"}
+SOURCE_SUFFIXES = {".py", ".sh", ".js", ".ts", ".rb", ".go", ".java", ".kt",
+                   ".c", ".h"}
 
 ENTRY_DIRS = ("bin", "scripts", "cmd", "tools")
 

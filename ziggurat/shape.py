@@ -34,6 +34,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import re
 from pathlib import Path
 
 #: Directories that are never part of a project's own shape.
@@ -60,24 +61,77 @@ def _top_level_names(path: Path) -> list:
     return sorted(set(names))
 
 
+#: A C translation unit's shape is read by LINE, not parsed. Shape has never
+#: looked inside a body, so a C parser would be a dependency bought for nothing.
+#: Everything below is anchored at column zero: in C, and emphatically in
+#: decompiler output, a definition starts there and a body never does.
+_C_FUNCTION = re.compile(r"^[A-Za-z_][^;=(){}]*?([A-Za-z_]\w*)\s*\(", re.M)
+_C_TAGGED_TYPE = re.compile(r"^(?:typedef\s+)?(?:struct|union|enum)\s+([A-Za-z_]\w*)", re.M)
+_C_TYPEDEF = re.compile(r"^typedef\s+[^;{}]*?([A-Za-z_]\w*)\s*;", re.M)
+_C_GLOBAL = re.compile(
+    r"^(?:(?:static|extern|const|volatile|register)\s+)*"
+    r"[A-Za-z_][\w \t*]*?([A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*(?:=[^;]*)?;", re.M)
+
+#: A keyword caught by one of the patterns above is never a name the file
+#: defines. Without this, `return x;` at column zero would contribute `return`.
+_C_KEYWORDS = frozenset("""
+auto break case char const continue default do double else enum extern float for goto if
+inline int long register restrict return short signed sizeof static struct switch typedef
+union unsigned void volatile while _Bool _Complex
+""".split())
+
+
+def _c_top_level_names(path: Path) -> list:
+    """Names a C translation unit contributes: definitions, prototypes, types, globals."""
+    try:
+        source = path.read_text(errors="replace")
+    except OSError:
+        return []
+    names = set()
+    for pattern in (_C_FUNCTION, _C_TAGGED_TYPE, _C_TYPEDEF, _C_GLOBAL):
+        names.update(pattern.findall(source))
+    return sorted(names - _C_KEYWORDS)
+
+
+#: Which reader answers for which suffix. Adding a language is one entry.
+NAME_READERS = {".py": _top_level_names, ".c": _c_top_level_names, ".h": _c_top_level_names}
+
+#: Every suffix shape can read, and the default set `shape()` walks.
+SHAPE_SUFFIXES = tuple(NAME_READERS)
+
+#: `int main(` at column zero, the C equivalent of a `__main__` guard.
+_C_MAIN = re.compile(r"^[A-Za-z_][\w \t*]*\bmain\s*\(", re.M)
+
+
 def _is_entry_point(path: Path, source: str) -> bool:
+    if path.suffix in (".c", ".h"):
+        return bool(_C_MAIN.search(source)) or path.parent.name in {"bin", "scripts"}
     return "__main__" in source or path.parent.name in {"bin", "scripts"}
 
 
-def shape(root) -> dict:
-    """The structural fingerprint of a project."""
+def shape(root, suffixes=None) -> dict:
+    """The structural fingerprint of a project.
+
+    `suffixes` pins which files count. The default is every language shape can
+    read; passing `(".py",)` reproduces the Python-only walk exactly, so a
+    caller that wants the old fingerprint can still ask for it.
+    """
     root = Path(root)
+    wanted = tuple(suffixes) if suffixes else SHAPE_SUFFIXES
     modules = {}
-    for path in sorted(root.rglob("*.py")):
+    for path in sorted(root.rglob("*")):
+        if path.suffix not in wanted or not path.is_file():
+            continue
         if any(part in SKIP for part in path.parts):
             continue
         try:
             source = path.read_text(errors="replace")
         except OSError:
             continue
+        reader = NAME_READERS.get(path.suffix, _top_level_names)
         relative = str(path.relative_to(root))
         modules[relative] = {
-            "names": _top_level_names(path),
+            "names": reader(path),
             "entry": _is_entry_point(path, source),
         }
     return {"modules": modules}

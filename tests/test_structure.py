@@ -319,3 +319,12 @@ def helper(path):
     return ROOT / path.name
 ''')
     assert not hits(tmp_path)
+
+
+def test_c_sources_are_analysed(tmp_path) -> None:
+    from ziggurat import structure
+    assert {".c", ".h"} <= structure.SOURCE_SUFFIXES
+    (tmp_path / "a.c").write_text("int main(void)\n{\n  return 0;\n}\n")
+    (tmp_path / "b.h").write_text("int helper(void);\n")
+    found = {p.name for p in structure._sources(tmp_path)}
+    assert found == {"a.c", "b.h"}
