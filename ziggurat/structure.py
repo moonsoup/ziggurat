@@ -169,6 +169,13 @@ JOINING = frozenset({"join", "joinpath"})
 #: beside it was correctly ignored.
 LOOKUPS = frozenset({"get", "pop", "setdefault", "getattr", "getenv"})
 
+#: Calls that SAY something rather than hand it somewhere. `print("cache")` in
+#: three files, beside one `Path("cache/x.db")`, was reported as `cache/`
+#: written into four (#16). A bare word handed to one of these is a message.
+MESSAGE_CALLS = frozenset({"print", "debug", "info", "warning", "warn", "error",
+                           "exception", "critical", "log", "echo", "secho",
+                           "write", "writelines"})
+
 #: Argparse destinations whose default is a path. An argparse default is the
 #: namer nobody finds when relocating, because it reads as configuration.
 #:
@@ -811,6 +818,16 @@ def _python_bare_strings(text: str) -> set:
             if (isinstance(node.func, ast.Attribute)
                     and name in LOOKUPS):
                 skip.add(id(node.args[0]))
+        # A message is not a namer (#16), however many files say it.
+        if isinstance(node, ast.Call) and _call_name(node) in MESSAGE_CALLS:
+            for arg in (*node.args, *(kw.value for kw in node.keywords)):
+                for child in ast.walk(arg):
+                    skip.add(id(child))
+        # NOT extended to bare words in lists and tuples, though `choices=
+        # ["data"]` is a label. Measured across 45 projects, doing so lost two
+        # real namers and no noise: `("data", "constant.txt", parse)` and a
+        # git pathspec `["engine", "scripts", "data"]` both name the
+        # directory. A dict value is a label far more often; a sequence is not.
 
     found: set = set()
     for node in ast.walk(tree):
@@ -928,6 +945,10 @@ def _scattered_paths(files: list, root: Path, report: Report) -> None:
     by_literal: dict = {}
     by_head: dict = {}
     names_under: dict = {}
+    #: Files counted ONLY because they mention a proved directory bare. Kept
+    #: on the finding, because a promotion nobody can see is a promotion
+    #: nobody can check -- #16 was found by reading sites, not the report.
+    bare_only: dict = {}
 
     for path in files:
         if _is_test(path, root) or _is_config(path):
@@ -1008,6 +1029,8 @@ def _scattered_paths(files: list, root: Path, report: Report) -> None:
             head = _path_head(literal) if "/" in literal else literal
             if head not in promotable:
                 continue
+            if where not in by_head.get(head, set()):
+                bare_only.setdefault(head, set()).add(where)
             by_head.setdefault(head, set()).add(where)
             # And by literal, or a directory with only ONE name under it
             # reports through the literal branch and never sees these --
@@ -1037,6 +1060,8 @@ def _scattered_paths(files: list, root: Path, report: Report) -> None:
             suggestion=("give the directory one name in a config module and "
                         "join onto it, so relocating it is a setting rather "
                         "than an edit per module."),
+            detail={"names": sorted(names),
+                    "named_bare_only": sorted(bare_only.get(head, ()))},
         ))
 
     for literal, paths in sorted(by_literal.items()):

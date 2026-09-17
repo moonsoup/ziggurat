@@ -429,7 +429,6 @@ def test_a_method_on_an_object_still_takes_options(tmp_path) -> None:
     assert findings(root) == []
 
 
-@pytest.mark.xfail(strict=True, reason="#16")
 def test_one_slash_does_not_license_every_bare_mention_in_the_tree(
         tmp_path) -> None:
     """What #5's fix left behind. `Path("cache/x.db")` in ONE file proves
@@ -466,3 +465,21 @@ def test_a_protocol_relative_url_is_not_a_directory(tmp_path) -> None:
     root = project(tmp_path, {f"m{i}.py": f'u = "//cdn.example.com/lib/a{i}.css"\n'
                               for i in range(4)})
     assert findings(root) == [], findings(root)
+
+
+def test_a_bare_word_in_a_tuple_still_names_a_directory(tmp_path) -> None:
+    """Measured, not assumed: `("data", "constant.txt", parse_constants)` is a
+    directory, a file and a parser, and treating sequence elements as labels
+    lost it and a git pathspec list on two real projects."""
+    files = {"real.py": 'p = Path("records/x.jsonl")\n'}
+    files.update({f"m{i}.py": f'SPEC = ("records", "f{i}.txt", parse)\n'
+                  for i in range(5)})
+    assert any("6 files" in f.summary for f in findings(project(tmp_path, files)))
+
+
+def test_a_finding_says_which_files_only_mention_the_directory(tmp_path) -> None:
+    """A promotion nobody can see is a promotion nobody can check."""
+    files = {f"real{i}.py": f'p = Path("records/a{i}.jsonl")\n' for i in range(4)}
+    files.update({f"pos{i}.py": 'shoot(bod, cam, "records")\n' for i in range(2)})
+    found = findings(project(tmp_path, files))
+    assert found[0].detail["named_bare_only"] == ["pos0.py", "pos1.py"]
