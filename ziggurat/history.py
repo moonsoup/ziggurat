@@ -135,15 +135,19 @@ def analyse(root) -> Report:
     touched = Counter()
     together = Counter()
     for files in commits:
-        # Sweeps couple everything to everything and mean nothing.
-        if len(files) > SWEEP_AT:
-            continue
-
         unique = sorted({f for f in set(files)
                          if not _is_generated(f) and not _is_manifest(f)})
-        if len(unique) < 2:
-            continue
+        # THE DENOMINATOR COUNTS EVERY COMMIT THAT TOUCHED THE FILE. Counting
+        # only the commits that survived the filters below made a file's solo
+        # commits vanish: two files with ten commits each, four shared, were
+        # reported as changing together 100% of the time -- 40% is the truth,
+        # under the bar (#19).
         touched.update(unique)
+
+        # Sweeps couple everything to everything and mean nothing -- as
+        # PAIRS. They are still commits that touched the file.
+        if len(files) > SWEEP_AT or len(unique) < 2:
+            continue
         for pair in combinations(unique, 2):
             together[pair] += 1
 

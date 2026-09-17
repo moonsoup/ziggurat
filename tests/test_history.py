@@ -168,7 +168,6 @@ def test_version_manifests_do_not_couple_to_everything(tmp_path):
 
 # --- 2026-09-17: a second independent verification ---------------------------
 
-@pytest.mark.xfail(strict=True, reason="#19")
 def test_a_ratio_counts_every_commit_that_touched_the_file(tmp_path):
     """Commits touching only one file were dropped BEFORE the denominator was
     counted. Two files with ten commits each, four of them shared, were
@@ -184,7 +183,6 @@ def test_a_ratio_counts_every_commit_that_touched_the_file(tmp_path):
     assert not found, [f.summary for f in found]
 
 
-@pytest.mark.xfail(strict=True, reason="#19")
 def test_the_evidence_gives_the_real_commit_counts(tmp_path):
     repo(tmp_path)
     commit(tmp_path, {"a.py": "x = 0\n"}, "a alone")
