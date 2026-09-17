@@ -348,7 +348,6 @@ def test_an_ancestor_named_tools_does_not_make_a_library_sprawl(tmp_path):
     assert not [f for f in report.findings if f.check == "entry-point-sprawl"]
 
 
-@pytest.mark.xfail(strict=True, reason="#13")
 def test_a_report_says_how_much_it_looked_at(tmp_path):
     """"nothing found" over three files and over none read identically."""
     for i in range(3):
@@ -356,7 +355,6 @@ def test_a_report_says_how_much_it_looked_at(tmp_path):
     assert "3 source files" in structure.analyse(tmp_path).render()
 
 
-@pytest.mark.xfail(strict=True, reason="#13")
 def test_looking_at_nothing_is_said_not_implied(tmp_path):
     text = structure.analyse(tmp_path).render()
     assert "0 source files" in text, text

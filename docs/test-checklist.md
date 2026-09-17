@@ -17,7 +17,7 @@ Baseline sweep: 992db24, 45 projects under `~/Software`.
 | item | state | issue | evidence |
 |---|---|---|---|
 | Folder-name rules (skip / test / entry-point / shape) match the path inside the project, not the absolute path | [fixed] | #12 | was: under `build/` → `[]`, under `tests/` → `[]`, library under `tools/` → `8 separate entry points`. 2026-09-17: oligolia cloned under `build/` scanned 0 (c54fea6) → 122 (fix), same as its real checkout; 45-project sweep unchanged apart from ziggurat's own history |
-| A report says how many source files it read | [broken] | #13 | render over 3 files and over 0 both say only `nothing found` |
+| A report says how many source files it read | [fixed] | #13 | was: render over 3 files and over 0 both said only `nothing found`. 2026-09-17: `ziggurat: oligolia (122 source files read)`; `ziggurat: dns_confirm (0 source files read)` (a CLAUDE.md-only dir); `--only history` shows no count rather than 0; sweep: no finding moved |
 | Tracked source under a build-output-named directory is scanned | [broken] | #14 | `scanned` 0 of 5 tracked `build/hooks/*.py`; oligolia's 4 tracked `build/` files unscanned |
 | Module-qualified path calls (`os.makedirs`, `os.path.*`, `shutil.*`, `pathlib.Path`, aliases) | [broken] | #15 | 5 files each → `[]`; bare `Path("outputs")` control → found |
 | One slash-bearing path does not promote bare mentions everywhere | [broken] | #16 | `Path("cache/x.db")` + 3× `print("cache")` → `cache/ is written into 4 files` |

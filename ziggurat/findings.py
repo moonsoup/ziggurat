@@ -67,8 +67,11 @@ class Report:
     #: "we looked and found nothing conclusive" is itself worth reading.
     quiet: list = field(default_factory=list)
     #: How many source files the analysis actually read. The number that
-    #: tells "found nothing" apart from "looked at nothing".
-    scanned: int = 0
+    #: tells "found nothing" apart from "looked at nothing" -- which rendered
+    #: identically, and is how a project under a `build/` directory reported
+    #: "nothing found" after reading no files at all (#12, #13). None means
+    #: nothing that reads files ran (history alone), which is not zero.
+    scanned: int | None = None
 
     def add(self, finding: Finding) -> "Report":
         self.findings.append(finding)
@@ -89,7 +92,11 @@ class Report:
         report nobody reads is the same as no report. What the extra detail
         is FOR is a reader that is not a person; see `as_dict`.
         """
-        out = [f"ziggurat: {self.project}", ""]
+        header = f"ziggurat: {self.project}"
+        if self.scanned is not None:
+            header += (f" ({self.scanned} source "
+                       f"{'file' if self.scanned == 1 else 'files'} read)")
+        out = [header, ""]
         if not self.findings:
             out.append("  nothing found")
         for confidence in Confidence:
