@@ -121,3 +121,36 @@ def test_the_cli_sweeps_and_compares(tmp_path) -> None:
 
     assert "alpha" in done.stdout
     assert "5 files" in done.stdout and "4 files" in done.stdout
+
+
+def _record_with_sites(out: Path, name: str, findings: list) -> None:
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"{name}.json").write_text(json.dumps({
+        "project": name, "scanned": 1, "skipped": [], "quiet": [],
+        "findings": [{"check": c, "summary": s, "paths": p}
+                     for c, s, p in findings]}))
+
+
+def test_compare_can_name_the_files_behind_what_moved(tmp_path) -> None:
+    """Adjudicating a finding means reading its sites. Pulling them out of
+    the JSON by hand read the NEXT finding's files -- keys are sorted, so
+    `paths` comes before `summary` -- and a verdict was written about the
+    wrong five files."""
+    before, after = tmp_path / "before", tmp_path / "after"
+    _record_with_sites(before, "alpha", [])
+    _record_with_sites(after, "alpha", [
+        ("scattered-path", "a/ in 4 files", ["one.py", "two.py"]),
+        ("scattered-path", "b/ in 4 files", ["three.py"])])
+
+    lines = sweep.compare(before, after, sites=True)
+
+    at = lines.index("  + scattered-path: a/ in 4 files")
+    assert lines[at + 1:at + 3] == ["      one.py", "      two.py"]
+    assert "      three.py" not in lines[at + 1:at + 3]
+
+
+def test_compare_stays_terse_unless_asked(tmp_path) -> None:
+    before, after = tmp_path / "before", tmp_path / "after"
+    _record_with_sites(before, "alpha", [])
+    _record_with_sites(after, "alpha", [("x", "y", ["one.py"])])
+    assert not any("one.py" in line for line in sweep.compare(before, after))

@@ -70,6 +70,8 @@ def main(argv=None) -> int:
                                        "one after")
     c.add_argument("before")
     c.add_argument("after")
+    c.add_argument("--sites", action="store_true",
+                   help="list the files behind every finding that moved")
 
     args = ap.parse_args(argv)
     if args.command == "sweep":
@@ -78,7 +80,7 @@ def main(argv=None) -> int:
         return 0
 
     if args.command == "compare":
-        lines = sweeping.compare(args.before, args.after)
+        lines = sweeping.compare(args.before, args.after, sites=args.sites)
         print("\n".join(lines) if lines else "ziggurat: no project changed")
         return 0
 

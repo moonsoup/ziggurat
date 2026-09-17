@@ -44,15 +44,23 @@ def _load(directory: Path) -> dict:
             for p in sorted(Path(directory).glob("*.json"))}
 
 
-def _said(record: dict) -> set:
-    return {f"{f['check']}: {f['summary']}" for f in record.get("findings", [])}
+def _said(record: dict) -> dict:
+    """Each finding, as a line, with the files behind it."""
+    return {f"{f['check']}: {f['summary']}": list(f.get("paths", []))
+            for f in record.get("findings", [])}
 
 
-def compare(before, after) -> list:
+def compare(before, after, sites: bool = False) -> list:
     """What a change to the checker changed about what it says.
 
     Silent about a project where nothing moved -- the lines that remain are
     the ones somebody has to adjudicate, one by one, against the code.
+
+    `sites` lists the files behind every finding that moved, because
+    adjudicating means reading them. Extracting them from the records by
+    hand read the neighbouring finding's files -- keys are sorted, so
+    `paths` precedes `summary` -- and a verdict was written about the wrong
+    five files.
     """
     old, new = _load(before), _load(after)
     lines = []
@@ -67,8 +75,13 @@ def compare(before, after) -> list:
         body = []
         if was.get("scanned") != now.get("scanned"):
             body.append(f"  scanned {was.get('scanned')} -> {now.get('scanned')}")
-        body.extend(f"  - {s}" for s in sorted(_said(was) - _said(now)))
-        body.extend(f"  + {s}" for s in sorted(_said(now) - _said(was)))
+        said_was, said_now = _said(was), _said(now)
+        for mark, gone, kept in (("-", said_was, said_now),
+                                 ("+", said_now, said_was)):
+            for line in sorted(set(gone) - set(kept)):
+                body.append(f"  {mark} {line}")
+                if sites:
+                    body.extend(f"      {where}" for where in gone[line])
         if body:
             lines.append(name)
             lines.extend(body)
