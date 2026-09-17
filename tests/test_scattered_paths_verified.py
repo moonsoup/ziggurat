@@ -410,7 +410,6 @@ def test_an_ancestor_named_tests_does_not_make_every_file_a_test(
     'import pathlib\npathlib.Path("outputs")\n',
     'import os.path as osp\nosp.isdir("outputs")\n',
 ])
-@pytest.mark.xfail(strict=True, reason="#15")
 def test_a_module_qualified_path_call_is_a_path_call(tmp_path, call) -> None:
     """`os.makedirs("outputs")` is the commonest way Python names a directory,
     and every attribute call was taken for a METHOD on a path object, whose

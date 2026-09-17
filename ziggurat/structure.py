@@ -131,6 +131,16 @@ PATH_CALLS = frozenset({
     "exists", "isfile", "isdir", "listdir", "walk", "touch", "replace",
 })
 
+#: Modules whose FUNCTIONS take paths. `os.makedirs("outputs")` is not a method
+#: on a path object whose arguments are options -- it is a function whose
+#: argument is the path -- and treating every attribute call as the first kind
+#: made `os.makedirs`, `os.path.exists`, `shutil.rmtree` and `pathlib.Path`
+#: invisible while bare `Path("outputs")` beside them was reported (#15). An
+#: attribute call counts when its receiver is rooted at a name the module binds
+#: by IMPORTING one of these; a local that happens to be called `path` does not.
+PATH_MODULES = frozenset({"os", "os.path", "posixpath", "ntpath", "shutil",
+                          "pathlib", "glob", "io", "builtins"})
+
 #: Suffixes that make a literal recognisable as a FILE in a language this
 #: cannot parse. Python goes through the AST and needs none of this; for shell,
 #: Go and TypeScript the only honest options were to report shape -- which
@@ -564,6 +574,23 @@ def _call_name(node) -> str:
     return ""
 
 
+def _path_module_names(tree) -> set:
+    """Names this module binds to a PATH_MODULES import, aliases included."""
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name in PATH_MODULES:
+                    # `import os.path` binds `os`; `import os.path as osp`
+                    # binds `osp`.
+                    names.add(alias.asname or alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                if f"{node.module}.{alias.name}" in PATH_MODULES:
+                    names.add(alias.asname or alias.name)  # from os import path
+    return names
+
+
 def _python_path_strings(text: str) -> set:
     """Strings this module USES as paths, by reading the syntax.
 
@@ -590,6 +617,7 @@ def _python_path_strings(text: str) -> set:
         return set()
 
     found: set = set()
+    modules = _path_module_names(tree)
 
     def take(node) -> None:
         literal = _literal_of(node)
@@ -601,13 +629,18 @@ def _python_path_strings(text: str) -> set:
         if isinstance(node, ast.Call):
             name = _call_name(node)
             attribute = isinstance(node.func, ast.Attribute)
-            if name in PATH_CALLS and (not attribute or name in JOINING):
+            qualified = attribute and \
+                _leftmost_name(node.func.value) in modules
+            if name in PATH_CALLS and (not attribute or qualified
+                                       or name in JOINING):
                 # On a METHOD the path is the object and the arguments are
                 # options: `target.open("a")` passes a file MODE, and taking it
                 # as a path reported the letter "a" as a scattered directory in
-                # six files. Only joining methods take paths as arguments.
-                args = node.args[:1] if name == "open" and not attribute \
-                    else node.args
+                # six files. Only joining methods take paths as arguments --
+                # and module FUNCTIONS, `os.makedirs("x")`, which are not
+                # methods at all.
+                args = node.args[:1] if name == "open" and \
+                    (not attribute or qualified) else node.args
                 for arg in args:
                     take(arg)
             # add_argument("--out", default="records")
