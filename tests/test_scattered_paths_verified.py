@@ -442,7 +442,6 @@ def test_one_slash_does_not_license_every_bare_mention_in_the_tree(
         findings(root)
 
 
-@pytest.mark.xfail(strict=True, reason="#17")
 def test_a_dot_slash_prefix_names_the_same_directory(tmp_path) -> None:
     root = project(tmp_path, {f"m{i}.py": f'p = Path("./data/f{i}.json")\n'
                               for i in range(5)})
@@ -450,7 +449,6 @@ def test_a_dot_slash_prefix_names_the_same_directory(tmp_path) -> None:
                for f in findings(root)), findings(root)
 
 
-@pytest.mark.xfail(strict=True, reason="#17")
 def test_a_parent_relative_directory_is_grouped_too(tmp_path) -> None:
     root = project(tmp_path, {f"m{i}.py": f'p = Path("../data/f{i}.json")\n'
                               for i in range(5)})
@@ -458,7 +456,6 @@ def test_a_parent_relative_directory_is_grouped_too(tmp_path) -> None:
                for f in findings(root)), findings(root)
 
 
-@pytest.mark.xfail(strict=True, reason="#17")
 def test_a_protocol_relative_url_is_not_a_directory(tmp_path) -> None:
     """The guard for this sat after a `return` in the `~/` branch, so it
     never ran."""
@@ -483,3 +480,20 @@ def test_a_finding_says_which_files_only_mention_the_directory(tmp_path) -> None
     files.update({f"pos{i}.py": 'shoot(bod, cam, "records")\n' for i in range(2)})
     found = findings(project(tmp_path, files))
     assert found[0].detail["named_bare_only"] == ["pos0.py", "pos1.py"]
+
+
+def test_the_same_protocol_relative_url_is_not_a_scattered_file(tmp_path) -> None:
+    root = project(tmp_path, {f"m{i}.py": 'u = "//cdn.example.com/lib/app.css"\n'
+                              for i in range(4)})
+    assert findings(root) == [], findings(root)
+
+
+def test_heads_of_prefixed_relative_paths() -> None:
+    from ziggurat import structure as S
+
+    assert S._path_head("./data/x.json") == "data"
+    assert S._path_head("././data/x.json") == "data"
+    assert S._path_head("../data/x.json") == "../data"
+    assert S._path_head("../../data/x.json") == "../../data"
+    assert S._path_head("../x.json") == ""
+    assert S._path_head("//cdn.example.com/lib/a.css") == ""

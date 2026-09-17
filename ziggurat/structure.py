@@ -862,8 +862,10 @@ def _is_path(literal: str) -> bool:
     head = literal.replace("\\", "/").split("/")[0].lower()
     if head in NOT_DIRECTORIES:
         return False
-    # A URL is an address, not a path in this tree.
-    return not (head.endswith(":") or "://" in literal)
+    # A URL is an address, not a path in this tree -- and so is one without
+    # its scheme, `//cdn.example.com/lib.js` (#17).
+    return not (head.endswith(":") or "://" in literal
+                or literal.replace("\\", "/").startswith("//"))
 
 
 def _path_head(literal: str) -> str:
@@ -885,6 +887,20 @@ def _path_head(literal: str) -> str:
     directory a forward slash does.
     """
     literal = literal.replace("\\", "/")
+    # `//cdn.example.com/x.js` is an address, not an absolute path. This guard
+    # sat after a `return` in the `~/` branch below, so it never ran and four
+    # files sharing a CDN were one scattered directory (#17).
+    if literal.startswith("//"):
+        return ""
+    # `./data/x.json` IS `data/x.json`, and `../data/x.json` is the directory
+    # `../data`. Both yielded a head of `.` or `..`, which is navigation, so
+    # five files naming `./data/` grouped into nothing (#17).
+    while literal.startswith("./"):
+        literal = literal[2:]
+    up = ""
+    while literal.startswith("../"):
+        up += "../"
+        literal = literal[3:]
     # A GLOB IS NOT A NAME. Collecting unambiguous file literals wherever they
     # sit picked up `*/CLAUDE.md` and reported `*/ is written into 8 files` --
     # eight modules that share a search pattern, not a directory anyone could
@@ -908,14 +924,16 @@ def _path_head(literal: str) -> str:
     if literal.startswith("~/"):
         parent = literal.rsplit("/", 1)[0]
         return parent if parent != "~" else ""
-        # `//cdn.example.com/x.js` is an address, not an absolute path.
-        return ""
     if literal.startswith("/"):
         parent = literal.rsplit("/", 1)[0]
         return parent if parent.strip("/") else ""
     head = literal.split("/")[0]
     if not head or "." in head or head in NAVIGATION:
         return ""
+    if up:
+        # Only a directory if something hangs off it: `../data` alone is a
+        # name, `../data/x.json` is the directory.
+        return up + head if "/" in literal else ""
     # NOT re-checked against NOT_DIRECTORIES here. `_is_path` has already
     # rejected those, so this branch was unreachable -- a rule applied twice on
     # one route and never on the other, which is the fault #1's own commit
