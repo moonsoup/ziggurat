@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from ziggurat import structure as S
 
 
@@ -255,3 +257,35 @@ class Config:
              if f.check == "singleton-bottleneck" and "panel_port" in f.summary][0]
     assert str(found.detail["scalar_default"]) == "9996", \
         "the env var NAME is not the default"
+
+
+# --- 2026-09-17: a second independent verification ---------------------------
+
+@pytest.mark.xfail(strict=True, reason="#22")
+def test_a_parameter_that_shares_a_config_name_is_not_a_reader(tmp_path):
+    """Any Name spelled like a config scalar counted as reading it. A config
+    `name` was "read by" four modules whose only `name` was their own
+    parameter."""
+    root = _project(tmp_path, {
+        "config.py": 'name = "app"\n',
+        **{f"m{i}.py": "def f(name):\n    return name\n" for i in range(4)}})
+    readers = S.scalar_readers(list(S._sources(root)), root, {"name"})
+    assert readers["name"] == set(), readers
+
+
+@pytest.mark.xfail(strict=True, reason="#22")
+def test_an_attribute_of_a_local_object_is_not_a_reader(tmp_path):
+    root = _project(tmp_path, {
+        "config.py": 'class Config:\n    host: str = "10.0.0.1"\n',
+        **{f"m{i}.py": "def f(node):\n    return node.host\n" for i in range(4)}})
+    readers = S.scalar_readers(list(S._sources(root)), root, {"host"})
+    assert readers["host"] == set(), readers
+
+
+def test_an_imported_name_read_bare_is_still_a_reader(tmp_path):
+    root = _project(tmp_path, {
+        "config.py": 'body_host = "10.0.0.1"\n',
+        **{f"m{i}.py": "from config import body_host\nv = body_host\n"
+           for i in range(4)}})
+    readers = S.scalar_readers(list(S._sources(root)), root, {"body_host"})
+    assert len(readers["body_host"]) == 4, readers

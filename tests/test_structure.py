@@ -328,3 +328,115 @@ def test_c_sources_are_analysed(tmp_path) -> None:
     (tmp_path / "b.h").write_text("int helper(void);\n")
     found = {p.name for p in structure._sources(tmp_path)}
     assert found == {"a.c", "b.h"}
+
+
+# --- 2026-09-17: a second independent verification ---------------------------
+
+import subprocess  # noqa: E402
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.xfail(strict=True, reason="#12")
+def test_an_ancestor_named_tools_does_not_make_a_library_sprawl(tmp_path):
+    """`ENTRY_DIRS` was matched against the absolute path, so eight library
+    modules anywhere under a directory called `tools/` were eight entry
+    points."""
+    root = tmp_path / "tools" / "lib"
+    for i in range(8):
+        write(root, f"pkg/mod{i}.py", f"def f{i}():\n    return {i}\n")
+    report = structure.analyse(root)
+    assert not [f for f in report.findings if f.check == "entry-point-sprawl"]
+
+
+@pytest.mark.xfail(strict=True, reason="#13")
+def test_a_report_says_how_much_it_looked_at(tmp_path):
+    """"nothing found" over three files and over none read identically."""
+    for i in range(3):
+        write(tmp_path, f"m{i}.py", "x = 1\n")
+    assert "3 source files" in structure.analyse(tmp_path).render()
+
+
+@pytest.mark.xfail(strict=True, reason="#13")
+def test_looking_at_nothing_is_said_not_implied(tmp_path):
+    text = structure.analyse(tmp_path).render()
+    assert "0 source files" in text, text
+
+
+@pytest.mark.xfail(strict=True, reason="#14")
+def test_tracked_source_under_a_build_named_directory_is_scanned(tmp_path):
+    """git is asked what is ignored so that a NAME need not be guessed at --
+    and then the name list overrode git's answer anyway. oligolia's
+    `build/build_mac.sh` and `build/hooks/hook-PyQt6.py` are tracked,
+    authored, and were never read."""
+    for i in range(5):
+        write(tmp_path, f"build/hooks/hook{i}.py", "x = 1\n")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    assert structure.analyse(tmp_path).scanned == 5
+
+
+def test_without_git_a_build_directory_is_still_skipped(tmp_path):
+    """Where git cannot answer, the name list is all there is."""
+    write(tmp_path, "m.py", "x = 1\n")
+    for i in range(5):
+        write(tmp_path, f"build/out{i}.py", "x = 1\n")
+    assert structure.analyse(tmp_path).scanned == 1
+
+
+def test_a_gitignored_build_directory_is_still_skipped(tmp_path):
+    write(tmp_path, ".gitignore", "build/\n")
+    write(tmp_path, "m.py", "x = 1\n")
+    for i in range(5):
+        write(tmp_path, f"build/out{i}.py", "x = 1\n")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    assert structure.analyse(tmp_path).scanned == 1
+
+
+def test_a_committed_virtualenv_is_still_not_the_project(tmp_path):
+    """Third-party code is never ours to fix, tracked or not."""
+    write(tmp_path, "m.py", "x = 1\n")
+    for i in range(5):
+        write(tmp_path, f".venv/lib/pkg{i}.py", "x = 1\n")
+        write(tmp_path, f"node_modules/p{i}/index.js", "x = 1\n")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "-A", "-f"], cwd=tmp_path, check=True)
+    assert structure.analyse(tmp_path).scanned == 1
+
+
+@pytest.mark.xfail(strict=True, reason="#21")
+def test_joining_strings_is_not_building_a_path(tmp_path):
+    """`SEP.join([path.stem, "v2"])` is str.join. `join` was in FROM_BASE for
+    os.path.join, whose receiver is `os` and never passed the ALL-CAPS test --
+    so the only thing it ever matched was a string."""
+    write(tmp_path, "m.py", 'SEP = "-"\n\n\ndef label(path):\n'
+                            '    return SEP.join([path.stem, "v2"])\n')
+    assert not [f for f in structure.analyse(tmp_path).findings
+                if f.check == "sibling-from-global"]
+
+
+@pytest.mark.xfail(strict=True, reason="#21")
+def test_os_path_join_onto_a_global_is_found(tmp_path):
+    """The form `join` was there for, and missed: the global is an ARGUMENT
+    of os.path.join, not its receiver."""
+    write(tmp_path, "m.py",
+          'import os\nDATA_DIR = "/var/data"\n\n\ndef cursor_for(path):\n'
+          '    return os.path.join(DATA_DIR, path.name + ".cursor")\n')
+    assert [f for f in structure.analyse(tmp_path).findings
+            if f.check == "sibling-from-global"]
+
+
+@pytest.mark.parametrize("code", [
+    'import runpy\nrunpy.run_path(job)\n',
+    'exec(open(job).read())\n',
+    'import importlib\nmod = importlib.import_module(name)\n',
+    'import imp\nmod = imp.load_source("job", job)\n',
+])
+@pytest.mark.xfail(strict=True, reason="#23")
+def test_the_other_ways_to_load_code_dynamically_are_found(tmp_path, code):
+    """Four spellings were matched. `importlib.import_module` is the modern
+    form of `__import__`, which is matched; `runpy.run_path` and
+    `exec(open(...))` run a file by path outright."""
+    write(tmp_path, "loader.py", code)
+    assert [f for f in structure.analyse(tmp_path).findings
+            if f.check == "dynamic-loading"]

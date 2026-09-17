@@ -1,5 +1,6 @@
 """A cheap fingerprint of a project's shape, so the report can stay expensive."""
 
+import pytest
 from ziggurat import shape
 
 
@@ -174,3 +175,88 @@ def test_the_python_only_walk_is_still_available(tmp_path) -> None:
     root = project(tmp_path, {"a.py": "x = 1\n", "src/map.c": C_MODULE})
     assert list(shape.shape(root, suffixes=(".py",))["modules"]) == ["a.py"]
     assert set(shape.shape(root)["modules"]) == {"a.py", "src/map.c"}
+
+
+# --- 2026-09-17: drift said "unchanged" while the report changed ------------
+
+import subprocess  # noqa: E402
+import sys  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+CLI = [sys.executable, str(Path(__file__).resolve().parent.parent
+                           / "bin" / "ziggurat.py")]
+
+
+def _drift(root, state, *extra):
+    return subprocess.run([*CLI, "drift", str(root), "--state", str(state),
+                           *extra], capture_output=True, text=True,
+                          check=True).stdout
+
+
+@pytest.mark.xfail(strict=True, reason="#18")
+def test_drift_reruns_when_a_body_edit_creates_a_finding(tmp_path) -> None:
+    """The fingerprint's premise was that no finding can be created by
+    editing inside a function. Five of the six structural checks read
+    function bodies. Adding `return Path("records/a3.jsonl")` to an existing
+    function took the report from nothing to a finding, and drift said
+    `shape unchanged`."""
+    root = tmp_path / "proj"
+    files = {f"m{i}.py": f'def f():\n    return Path("records/a{i}.jsonl")\n'
+             for i in range(3)}
+    files["m3.py"] = "def f():\n    return None\n"
+    project(root, files)
+    state = tmp_path / "state.json"
+    _drift(root, state)
+    (root / "m3.py").write_text('def f():\n    return Path("records/a3.jsonl")\n')
+    out = _drift(root, state)
+    assert "shape unchanged" not in out, out
+    assert "records/" in out, out
+
+
+@pytest.mark.xfail(strict=True, reason="#18")
+def test_drift_sees_a_new_shell_script(tmp_path) -> None:
+    """The report reads shell, JS, TS, Go and more; the fingerprint read
+    only Python and C, so a new `scripts/deploy.sh` moved nothing."""
+    root = tmp_path / "proj"
+    project(root, {"a.py": "x = 1\n"})
+    state = tmp_path / "state.json"
+    _drift(root, state)
+    (root / "scripts").mkdir()
+    (root / "scripts" / "deploy.sh").write_text("#!/bin/sh\necho hi\n")
+    out = _drift(root, state)
+    assert "shape unchanged" not in out, out
+
+
+def test_drift_is_still_silent_when_nothing_changed(tmp_path) -> None:
+    root = tmp_path / "proj"
+    project(root, {"a.py": "def one():\n    return 1\n"})
+    state = tmp_path / "state.json"
+    _drift(root, state)
+    assert "shape unchanged" in _drift(root, state)
+
+
+def test_a_comment_edit_is_not_worth_a_report(tmp_path) -> None:
+    root = tmp_path / "proj"
+    project(root, {"a.py": "def one():\n    return 1\n"})
+    state = tmp_path / "state.json"
+    _drift(root, state)
+    (root / "a.py").write_text("def one():\n    # the only one\n    return 1\n")
+    assert "shape unchanged" in _drift(root, state)
+
+
+@pytest.mark.xfail(strict=True, reason="#18")
+def test_the_names_only_fingerprint_is_still_available(tmp_path) -> None:
+    """The cheaper, blinder gate is kept for whoever hooked it for its
+    price -- asked for by name, and documented for what it cannot see."""
+    root = tmp_path / "proj"
+    project(root, {"a.py": "def one():\n    return 1\n"})
+    state = tmp_path / "state.json"
+    _drift(root, state, "--names-only")
+    (root / "a.py").write_text("def one():\n    return 2\n")
+    assert "shape unchanged" in _drift(root, state, "--names-only")
+
+
+@pytest.mark.xfail(strict=True, reason="#12")
+def test_an_ancestor_named_build_does_not_empty_the_shape(tmp_path) -> None:
+    root = project(tmp_path / "build" / "proj", {"a.py": "x = 1\n"})
+    assert shape.shape(root)["modules"], "the whole project was skipped"

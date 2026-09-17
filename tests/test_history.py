@@ -2,6 +2,8 @@
 
 import subprocess
 
+import pytest
+
 from ziggurat import history
 from ziggurat.findings import Confidence
 
@@ -162,3 +164,48 @@ def test_version_manifests_do_not_couple_to_everything(tmp_path):
     coupled = [f for f in history.analyse(tmp_path).findings
                if f.check == "change-coupling"]
     assert not coupled
+
+
+# --- 2026-09-17: a second independent verification ---------------------------
+
+@pytest.mark.xfail(strict=True, reason="#19")
+def test_a_ratio_counts_every_commit_that_touched_the_file(tmp_path):
+    """Commits touching only one file were dropped BEFORE the denominator was
+    counted. Two files with ten commits each, four of them shared, were
+    reported as changing together 100% of the time -- the true figure is 40%,
+    under the bar."""
+    repo(tmp_path)
+    for i in range(6):
+        commit(tmp_path, {"a.py": f"x = {i}\n"}, f"a alone {i}")
+        commit(tmp_path, {"b.py": f"x = {i}\n"}, f"b alone {i}")
+    for i in range(4):
+        commit(tmp_path, {"a.py": f"y = {i}\n", "b.py": f"y = {i}\n"}, f"both {i}")
+    found = history.analyse(tmp_path).findings
+    assert not found, [f.summary for f in found]
+
+
+@pytest.mark.xfail(strict=True, reason="#19")
+def test_the_evidence_gives_the_real_commit_counts(tmp_path):
+    repo(tmp_path)
+    commit(tmp_path, {"a.py": "x = 0\n"}, "a alone")
+    for i in range(4):  # history shorter than this is skipped outright
+        commit(tmp_path, {"c.py": f"z = {i}\n"}, f"elsewhere {i}")
+    for i in range(4):
+        commit(tmp_path, {"a.py": f"y = {i}\n", "b.py": f"y = {i}\n"}, f"both {i}")
+    found = history.analyse(tmp_path).findings
+    assert found and "a.py has 5 commits" in found[0].evidence, \
+        [f.evidence for f in found]
+
+
+@pytest.mark.xfail(strict=True, reason="#20")
+def test_no_coupled_pair_is_dropped_by_a_display_cap(tmp_path):
+    """Only the forty most-shared pairs were ever looked at. The rest were
+    dropped without a word, however coupled."""
+    repo(tmp_path)
+    for n in range(45):
+        for i in range(4):
+            commit(tmp_path, {f"q{n}/a.py": f"x = {i}\n",
+                              f"q{n}/b.py": f"x = {i}\n"}, f"pair {n} {i}")
+    found = [f for f in history.analyse(tmp_path).findings
+             if f.summary.startswith("q")]
+    assert len(found) == 45, len(found)

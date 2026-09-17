@@ -376,3 +376,96 @@ def test_a_head_seen_with_a_slash_still_promotes(tmp_path) -> None:
     files.update({f"pos{i}.py": 'shoot(bod, cam, "records")\n' for i in range(2)})
     root = project(tmp_path, files)
     assert any("6 files" in f.summary for f in findings(root)), findings(root)
+
+
+# --- 2026-09-17: a second independent verification ---------------------------
+#
+# Every case below failed against 992db24, on a fixture built to break the
+# check rather than to pass it. Each was filed as an issue before its fix.
+
+import pytest  # noqa: E402
+
+SCATTERED = {f"m{i}.py": f'p = Path("records/a{i}.jsonl")\n' for i in range(5)}
+
+
+@pytest.mark.xfail(strict=True, reason="#12")
+def test_an_ancestor_named_like_build_output_does_not_hide_the_project(
+        tmp_path) -> None:
+    """The walk matched skip names against the ABSOLUTE path. A project
+    checked out anywhere under a directory called `build/` scanned nothing,
+    and the report said "nothing found" -- which reads as clean."""
+    root = project(tmp_path / "build" / "proj", SCATTERED)
+    assert any("5 files" in f.summary for f in findings(root)), findings(root)
+
+
+@pytest.mark.xfail(strict=True, reason="#12")
+def test_an_ancestor_named_tests_does_not_make_every_file_a_test(
+        tmp_path) -> None:
+    root = project(tmp_path / "tests" / "proj", SCATTERED)
+    assert any("5 files" in f.summary for f in findings(root)), findings(root)
+
+
+@pytest.mark.parametrize("call", [
+    'import os\nos.makedirs("outputs")\n',
+    'import os\nos.path.exists("outputs")\n',
+    'import shutil\nshutil.rmtree("outputs")\n',
+    'import pathlib\npathlib.Path("outputs")\n',
+    'import os.path as osp\nosp.isdir("outputs")\n',
+])
+@pytest.mark.xfail(strict=True, reason="#15")
+def test_a_module_qualified_path_call_is_a_path_call(tmp_path, call) -> None:
+    """`os.makedirs("outputs")` is the commonest way Python names a directory,
+    and every attribute call was taken for a METHOD on a path object, whose
+    arguments are options. `Path("outputs")` in five files was reported;
+    `os.makedirs("outputs")` in five was invisible."""
+    root = project(tmp_path, {f"m{i}.py": call for i in range(5)})
+    assert any("outputs" in f.summary and "5 files" in f.summary
+               for f in findings(root)), findings(root)
+
+
+def test_a_method_on_an_object_still_takes_options(tmp_path) -> None:
+    """What the attribute rule exists for must survive: `target.open("a")`
+    passes a mode and `name.replace("a", "b")` edits a string."""
+    root = project(tmp_path, {
+        f"m{i}.py": 'target.open("a")\nname.replace("a", "b")\n'
+        for i in range(6)})
+    assert findings(root) == []
+
+
+@pytest.mark.xfail(strict=True, reason="#16")
+def test_one_slash_does_not_license_every_bare_mention_in_the_tree(
+        tmp_path) -> None:
+    """What #5's fix left behind. `Path("cache/x.db")` in ONE file proves
+    `cache` is a directory, and then `print("cache")` in three more was
+    counted as naming it: `cache/ is written into 4 files` when one file
+    names it."""
+    files = {"a.py": 'p = Path("cache/x.db")\n'}
+    files.update({f"n{i}.py": 'print("cache")\n' for i in range(3)})
+    root = project(tmp_path, files)
+    assert not any("cache" in f.summary for f in findings(root)), \
+        findings(root)
+
+
+@pytest.mark.xfail(strict=True, reason="#17")
+def test_a_dot_slash_prefix_names_the_same_directory(tmp_path) -> None:
+    root = project(tmp_path, {f"m{i}.py": f'p = Path("./data/f{i}.json")\n'
+                              for i in range(5)})
+    assert any("data/" in f.summary and "5 files" in f.summary
+               for f in findings(root)), findings(root)
+
+
+@pytest.mark.xfail(strict=True, reason="#17")
+def test_a_parent_relative_directory_is_grouped_too(tmp_path) -> None:
+    root = project(tmp_path, {f"m{i}.py": f'p = Path("../data/f{i}.json")\n'
+                              for i in range(5)})
+    assert any("../data/" in f.summary and "5 files" in f.summary
+               for f in findings(root)), findings(root)
+
+
+@pytest.mark.xfail(strict=True, reason="#17")
+def test_a_protocol_relative_url_is_not_a_directory(tmp_path) -> None:
+    """The guard for this sat after a `return` in the `~/` branch, so it
+    never ran."""
+    root = project(tmp_path, {f"m{i}.py": f'u = "//cdn.example.com/lib/a{i}.css"\n'
+                              for i in range(4)})
+    assert findings(root) == [], findings(root)
