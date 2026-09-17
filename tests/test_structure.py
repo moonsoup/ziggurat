@@ -410,7 +410,6 @@ def test_a_committed_virtualenv_is_still_not_the_project(tmp_path):
     assert structure.analyse(tmp_path).scanned == 1
 
 
-@pytest.mark.xfail(strict=True, reason="#21")
 def test_joining_strings_is_not_building_a_path(tmp_path):
     """`SEP.join([path.stem, "v2"])` is str.join. `join` was in FROM_BASE for
     os.path.join, whose receiver is `os` and never passed the ALL-CAPS test --
@@ -421,7 +420,6 @@ def test_joining_strings_is_not_building_a_path(tmp_path):
                 if f.check == "sibling-from-global"]
 
 
-@pytest.mark.xfail(strict=True, reason="#21")
 def test_os_path_join_onto_a_global_is_found(tmp_path):
     """The form `join` was there for, and missed: the global is an ARGUMENT
     of os.path.join, not its receiver."""

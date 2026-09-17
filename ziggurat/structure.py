@@ -1284,6 +1284,16 @@ def _from_a_global(node, bound: set) -> str:
     for sub in ast.walk(node):
         base = None
         if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute) \
+                and sub.func.attr == "join":
+            # TWO DIFFERENT JOINS (#21). `SEP.join([path.stem, "v2"])` is
+            # str.join -- one argument, a string, no path -- and was reported
+            # as locating a sibling through SEP. `os.path.join(DATA_DIR,
+            # path.name)` IS the fault, and was missed: its base is the first
+            # ARGUMENT, not the receiver. str.join takes exactly one argument,
+            # so the count tells them apart without guessing at types.
+            if len(sub.args) >= 2:
+                base = _leftmost_name(sub.args[0])
+        elif isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute) \
                 and sub.func.attr in FROM_BASE:
             base = _leftmost_name(sub.func.value)
         elif isinstance(sub, ast.BinOp) and isinstance(sub.op, ast.Div):
