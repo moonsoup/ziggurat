@@ -1,129 +1,19 @@
 #!/usr/bin/env python3
-"""Ziggurat -- architecture decided in planning, verified afterwards.
+"""Ziggurat's command line, runnable straight from a checkout.
 
-    ziggurat report <path>            what the structure and the history say
-    ziggurat report <path> --only structure
-    ziggurat report <path> --full     every site, and what was set aside
-    ziggurat report <path> --json     structured, for an agent to plan against
-    ziggurat drift <path>             report ONLY if the shape has moved
-    ziggurat sweep <root> --out DIR   the report for every project under root
-    ziggurat compare <before> <after> what a checker change changed
-
-`drift` exists because running a full report on every action is too expensive
-to live with, and running it never is how a project drifts. Deciding WHETHER
-the architecture could have changed is nearly free; only the answer "yes" is
-worth paying for. Hook `drift` wherever edits land -- it is silent and cheap
-until a module appears, a script becomes a second way in, or a constant escapes
-into a new file.
-
-ONE entry point with subcommands, not a script per capability. That is the
-first thing this tool complains about, so it would be a poor advertisement to
-be built the other way.
+The implementation lives in `ziggurat.cli` so that an installed console script
+and a SPIndlebox plugin can share it verbatim. This file stays because it is
+what other projects invoke by path, and because the tool must keep working with
+nothing installed at all -- a checkout and a Python is the whole requirement.
 """
 from __future__ import annotations
 
-import argparse
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from ziggurat import report as reporting  # noqa: E402
-from ziggurat import shape as shaping  # noqa: E402
-from ziggurat import sweep as sweeping  # noqa: E402
-
-
-def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="ziggurat",
-                                 description=__doc__.splitlines()[0])
-    sub = ap.add_subparsers(dest="command", required=True)
-
-    r = sub.add_parser("report", help="analyse a project as it is")
-    r.add_argument("path")
-    r.add_argument("--only", nargs="*", default=None,
-                   help="run only these analysers (structure, history)")
-    r.add_argument("--full", action="store_true",
-                   help="every site behind every finding, and why each "
-                        "inconclusive observation was set aside")
-    r.add_argument("--json", action="store_true",
-                   help="the same report, structured, for a reader that is "
-                        "not a person")
-
-    d = sub.add_parser("drift", help="report only if the shape has moved")
-    d.add_argument("path")
-    d.add_argument("--state", default="",
-                   help="where the fingerprint lives (default: "
-                        "<path>/.ziggurat-shape.json)")
-    d.add_argument("--quiet", action="store_true",
-                   help="say nothing at all when the shape is unchanged")
-
-    s = sub.add_parser("sweep", help="the report for every project under a "
-                                     "directory, one JSON record each")
-    s.add_argument("root")
-    s.add_argument("--out", required=True,
-                   help="directory the per-project records are written to")
-    s.add_argument("--only", nargs="*", default=None,
-                   help="run only these analysers (structure, history)")
-
-    c = sub.add_parser("compare", help="what changed between two sweeps -- "
-                                       "run one before a checker change and "
-                                       "one after")
-    c.add_argument("before")
-    c.add_argument("after")
-    c.add_argument("--sites", action="store_true",
-                   help="list the files behind every finding that moved")
-
-    args = ap.parse_args(argv)
-    if args.command == "sweep":
-        written = sweeping.run(args.root, args.out, only=args.only)
-        print(f"ziggurat: swept {len(written)} projects into {args.out}")
-        return 0
-
-    if args.command == "compare":
-        lines = sweeping.compare(args.before, args.after, sites=args.sites)
-        print("\n".join(lines) if lines else "ziggurat: no project changed")
-        return 0
-
-    if args.command == "report":
-        result = reporting.analyse(args.path, only=args.only)
-        if args.json:
-            import json
-
-            print(json.dumps(result.as_dict(), indent=2, sort_keys=True))
-            return 0
-        print(result.render(full=args.full))
-        # Findings are not failures. This tool reports; a project decides what
-        # to do about it, which is the difference between a report and a gate.
-        return 0
-
-    if args.command == "drift":
-        root = Path(args.path)
-        state = Path(args.state) if args.state else root / ".ziggurat-shape.json"
-        before = shaping.load(state)
-        after = shaping.shape(root)
-        moved = shaping.differences(before, after)
-        if not before:
-            shaping.save(state, after)
-            print(f"ziggurat: recorded the shape of {root.name} "
-                  f"({len(after['modules'])} modules). Nothing to compare "
-                  "against yet.")
-            return 0
-        if not moved:
-            if not args.quiet:
-                print("ziggurat: shape unchanged "
-                      f"({shaping.digest(after)}); not re-running the report.")
-            return 0
-        print("ziggurat: the shape moved --")
-        for line in moved:
-            print(f"  {line}")
-        print()
-        print(reporting.analyse(str(root)).render())
-        shaping.save(state, after)
-        # Still not a gate. This reports; the project decides.
-        return 0
-
-    return 1
-
+from ziggurat.cli import main  # noqa: E402
 
 if __name__ == "__main__":
     raise SystemExit(main())

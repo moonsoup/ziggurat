@@ -1,0 +1,13 @@
+{
+ "claim": "ziggurat:change-coupling through the spindlebox plugin says exactly what bin/ziggurat.py report --only history --json says, for every subject",
+ "at": "2026-09-17T19:59:26.849Z",
+ "dispatched": 13,
+ "compared": 13,
+ "equal": 13,
+ "verified": true,
+ "findings": [],
+ "reconciliation": {
+  "verified": true,
+  "findings": []
+ }
+}

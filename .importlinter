@@ -14,6 +14,8 @@
 
 [importlinter]
 root_package = ziggurat
+# required to name an external package (spindlebox) as forbidden
+include_external_packages = True
 
 [importlinter:contract:tiers]
 name = Levels rest on the level below, never the reverse
@@ -23,10 +25,30 @@ type = layers
 # the start teaches everyone to ignore it. Levels are added here as the modules
 # that fill them are built.
 layers =
+    ziggurat.spindle_plugin
+    ziggurat.cli
     ziggurat.sweep
     ziggurat.report
     ziggurat.structure | ziggurat.history
     ziggurat.findings
+
+[importlinter:contract:platform-is-optional]
+# The checks are standard-library only, so a checkout and a Python are the whole
+# requirement and `bin/ziggurat.py` runs with nothing installed. Exactly one
+# module may reach for the platform; this proves the claim rather than asserting
+# it in a README.
+name = Only the plugin module knows spindlebox exists
+type = forbidden
+source_modules =
+    ziggurat.findings
+    ziggurat.structure
+    ziggurat.history
+    ziggurat.report
+    ziggurat.sweep
+    ziggurat.shape
+    ziggurat.cli
+forbidden_modules =
+    spindlebox
 
 [importlinter:contract:analysers-independent]
 name = Analysers do not know about each other

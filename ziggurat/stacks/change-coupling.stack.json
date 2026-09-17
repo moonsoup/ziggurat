@@ -1,0 +1,7 @@
+{
+  "report": "change-coupling",
+  "description": "Files that keep changing together, whatever imports what",
+  "stages": ["select.projects", "ziggurat.analyse", "render.findings"],
+  "ctx": {"root": null, "under": null, "only": ["history"]},
+  "default_format": "md"
+}

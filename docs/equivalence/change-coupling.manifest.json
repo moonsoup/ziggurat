@@ -1,0 +1,84 @@
+{
+ "claim": "ziggurat:change-coupling through the spindlebox plugin says exactly what bin/ziggurat.py report --only history --json says, for every subject",
+ "workflow": "ziggurat-plugin-equivalence",
+ "subjects": [
+  {
+   "name": "ziggurat",
+   "root": "/Users/isme/Software/ziggurat"
+  },
+  {
+   "name": "spindlebox",
+   "root": "/Users/isme/Software/spindlebox"
+  },
+  {
+   "name": "oligolia",
+   "root": "/Users/isme/Software/oligolia"
+  },
+  {
+   "name": "miniproj_bash",
+   "root": "/Users/isme/Software/spindlebox/tests/fixtures/miniproj_bash"
+  },
+  {
+   "name": "miniproj_c",
+   "root": "/Users/isme/Software/spindlebox/tests/fixtures/miniproj_c"
+  },
+  {
+   "name": "miniproj_edge",
+   "root": "/Users/isme/Software/spindlebox/tests/fixtures/miniproj_edge"
+  },
+  {
+   "name": "miniproj_gaps",
+   "root": "/Users/isme/Software/spindlebox/tests/fixtures/miniproj_gaps"
+  },
+  {
+   "name": "miniproj_go",
+   "root": "/Users/isme/Software/spindlebox/tests/fixtures/miniproj_go"
+  },
+  {
+   "name": "miniproj_java",
+   "root": "/Users/isme/Software/spindlebox/tests/fixtures/miniproj_java"
+  },
+  {
+   "name": "miniproj_js",
+   "root": "/Users/isme/Software/spindlebox/tests/fixtures/miniproj_js"
+  },
+  {
+   "name": "miniproj_mixed",
+   "root": "/Users/isme/Software/spindlebox/tests/fixtures/miniproj_mixed"
+  },
+  {
+   "name": "miniproj_py",
+   "root": "/Users/isme/Software/spindlebox/tests/fixtures/miniproj_py"
+  },
+  {
+   "name": "miniproj_rust",
+   "root": "/Users/isme/Software/spindlebox/tests/fixtures/miniproj_rust"
+  }
+ ],
+ "a": {
+  "argv": [
+   "python3",
+   "/Users/isme/Software/ziggurat/bin/ziggurat.py",
+   "report",
+   "{root}",
+   "--only",
+   "history",
+   "--json"
+  ]
+ },
+ "b": {
+  "argv": [
+   "spindlebox",
+   "report",
+   "ziggurat:change-coupling",
+   "--ctx",
+   "{\"root\": \"{root}\"}",
+   "--format",
+   "json"
+  ]
+ },
+ "bExtract": [
+  "results",
+  "{name}"
+ ]
+}

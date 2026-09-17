@@ -36,3 +36,20 @@ Baseline sweep: 992db24, 45 projects under `~/Software`.
 | drift silent when nothing, or only a comment, changed | [working] | — | control tests pass at 992db24 |
 | gitignored and vendored trees stay skipped, with or without git | [working] | — | control tests pass at 992db24 |
 | scattered-constant on version strings (suspected by the verifier) | [working] | — | not filed: across 45 projects the only findings were one real VPS address |
+
+## 2026-09-17: Ziggurat as a SPIndlebox plugin (phase 1)
+
+Verified through the platform, not asserted. Evidence: `docs/equivalence/` (manifest + verdict),
+produced by `rockin-robin/scripts/rr_equivalence_run.ts`, which dispatches from a ledger so a
+subject that silently did not run cannot be counted as equal.
+
+| item | state | evidence |
+|---|---|---|
+| `ziggurat:change-coupling` through `spindlebox report` equals `bin/ziggurat.py report --only history --json` | [working] | 13/13 subjects equal, 13 compared, reconciliation clean. Subjects: ziggurat (4 findings), spindlebox (2), oligolia (3), and spindlebox's 10 `miniproj_*` fixtures (1 `skipped` each) — so both findings and `skipped` are covered |
+| the harness can fail | [working] | negative control (A asked for structure, B for history): `NOT VERIFIED 0/3`, each difference named (`findings.length: 0 !== 4`), exit 1 |
+| `bin/ziggurat.py` still runs with nothing installed | [working] | the body moved to `ziggurat.cli`; import-linter contract "Only the plugin module knows spindlebox exists" KEPT (3 contracts kept) |
+| the four subcommands and their flags are unchanged | [working] | `--help` lists report/drift/sweep/compare; suite 200 passed, 12 xfailed (the paused #18/#22/#23/#24) |
+| SPIndlebox's built-in commands unchanged by the contract | [working] | 443 → 487 tests pass, ruff clean, `report --list` and typing-health/dup-candidates byte-identical in md and json |
+
+Subject trees were dirty when measured (ziggurat 12 files, spindlebox 4, oligolia 1); the verdict
+records each commit and count, because uncommitted files are part of what Ziggurat reads.

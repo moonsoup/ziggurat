@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ziggurat"
+version = "0.2.0"
+description = "Architecture decided in planning, verified afterwards: structural checks over a project, not a style opinion."
+requires-python = ">=3.11"
+license = {text = "MIT"}
+
+# NO RUNTIME DEPENDENCIES ON PURPOSE. The checks are standard-library only, so
+# a checkout and a Python are the whole requirement. spindlebox is not listed
+# even though `ziggurat.spindle_plugin` imports it: the platform is optional
+# reach, it is not needed to run a check -- and it is not on PyPI, so a
+# dependency here would make this package uninstallable.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.4", "import-linter>=2"]
+
+[project.scripts]
+ziggurat = "ziggurat.cli:main"
+
+# Discovered by spindlebox through packaging metadata; spindlebox never imports
+# a plugin by name. See spindlebox/docs/PLUGINS.md.
+[project.entry-points."spindlebox.plugins"]
+ziggurat = "ziggurat.spindle_plugin"
+
+[tool.setuptools]
+packages = ["ziggurat"]
+
+[tool.setuptools.package-data]
+ziggurat = ["stacks/*.stack.json"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
