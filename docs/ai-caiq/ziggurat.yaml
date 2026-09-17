@@ -1,0 +1,180 @@
+meta:
+  subject: Ziggurat — a tier-1 architecture checker, and a SPIndlebox plugin
+  repo: moonsoup/ziggurat
+  owner: ours
+  commit_assessed: e96c82c (main)
+  role: >
+    Locally-run developer CLI, standard-library only, MIT licensed. Not a hosted service,
+    not multi-tenant, no customer data, no model training or inference, no network access
+    of any kind. It reads source trees and git history on the operator's own machine and
+    writes a report to stdout (plus an optional `.ziggurat-shape.json` fingerprint beside
+    the project). Since 2026-09-17 it is also a SPIndlebox plugin: the same checks reached
+    through `spindlebox report ziggurat:<report>`. This scoping is material to most answers
+    below — where a control assumes a service with customers, the honest answer is No with
+    what does exist, not an NA that hides the gap.
+  specification: AI-CAIQ v1.1.0 / AICM v1.1.0
+  status: in-progress
+  started: 2026-09-17
+  scope_note: >
+    A separate subject from spindlebox.yaml, rockin-robin.yaml and ssm-factory.yaml, per the
+    standing direction in rockin-robin/docs/ai-caiq/README.md. No answer here borrows
+    evidence from another subject: where the platform (SPIndlebox) implements something,
+    that belongs in ITS assessment, not this one. The toolchain — SPIndlebox plus this
+    plugin — is not itself a subject; each tool answers for itself.
+  completeness: >
+    6 of 247 controls answered. The remaining 241 are UNASSESSED and left EMPTY in the
+    workbook — not "No". Nobody has examined them against this subject. Silence must never
+    read as a finding.
+
+answers:
+
+# ---------------------------------------------------------------- change control
+
+- control: CCC-02
+  title: Quality testing in the change process
+  answer: 'Yes'
+  ssrm: Owned by OSP
+  implementation: >
+    Every change lands with a test that fails first. Thirteen defects fixed in September 2026
+    (#12-#17, #19-#21, #25, #26, #29) each began as a reproducing test committed
+    xfail(strict=True) with its issue number, so a test that starts passing without its fix
+    fails the suite loudly. The gate is the full suite plus ruff plus import-linter layer
+    contracts, and the contracts are part of the design rather than decoration: one of them
+    ("Only the plugin module knows spindlebox exists") is what makes the standalone claim
+    checkable. Behaviour changes to a check are additionally proven against real projects
+    with `ziggurat sweep` and `ziggurat compare --sites`, and every finding that moves is
+    read against the code before the change lands.
+  evidence:
+  - type: test-run
+    ref: 'cd ~/Software/ziggurat && python3 -m pytest -q  ->  202 passed, 12 xfailed'
+    observed: 202 passed, 12 xfailed (the four open issues still carry strict xfails)
+    date: 2026-09-17
+  - type: config
+    ref: ".importlinter  ->  'Contracts: 3 kept, 0 broken' via lint-imports"
+    observed: layers contract, analysers-independent, platform-is-optional
+    date: 2026-09-17
+  - type: artifact
+    ref: docs/test-checklist.md
+    observed: every item [working]/[fixed] with dated evidence; the living record
+    date: 2026-09-17
+
+- control: CCC-03
+  title: Change management procedure for risk from changes
+  answer: 'Yes'
+  ssrm: Owned by OSP
+  implementation: >
+    The procedure is fixed and visible in the issue history: a defect is filed as a GitHub
+    issue with a concrete failure scenario BEFORE any fix, claimed, reproduced by a failing
+    test, fixed, verified live, and closed with the fixing commit and the verification
+    evidence. Issues are filed through a script that refuses an empty body and refuses to
+    close without evidence, so the discipline is mechanical rather than remembered. A
+    change that alters what a checker reports is re-run across real projects before and
+    after, and the comparison names the files behind every finding that moved.
+  evidence:
+  - type: artifact
+    ref: 'gh issue list -R moonsoup/ziggurat --state closed  ->  #12-#17, #19-#21, #25, #26, #29'
+    observed: each carries a reproduction, a fixing sha, and verification evidence in its close comment
+    date: 2026-09-17
+  - type: config
+    ref: ~/Software/projectMan/scripts/gh_issue.py (exit 2 refuses; close requires --body-file)
+    observed: filing and closing both refuse mechanically rather than by convention
+    date: 2026-09-17
+
+# ---------------------------------------------------------------- audit and assurance
+
+- control: A&A-02
+  title: Independent audit and assurance assessments
+  answer: 'No'
+  ssrm: Owned by OSP
+  implementation: >
+    No independent audit is conducted; there is no auditor, no schedule and no standard
+    being audited against. WHAT DOES EXIST: every batch of changes is reviewed by an agent
+    from a different vendor (Codex, read-only sandbox) through a file-based channel with an
+    append-only message log, and its findings are re-tested here before being accepted. It
+    has repeatedly found real defects the author's own verification missed — most recently
+    a regression in #26 that a 45-project sweep could not see (#29), and an unqualified
+    "no behaviour change" claim it falsified in one command (spindlebox#34). That is
+    separation of duties between unrelated parties, which is the useful half of this
+    control, but it is not an independent assessment against a standard and is not claimed
+    as one.
+  evidence:
+  - type: artifact
+    ref: agent_comms.json msg_002-msg_008 (requests, assessments, replies with what was actioned)
+    observed: two review rounds; 5 defects found and fixed (#25, #26, #29, spindlebox#34, rockin-robin#20)
+    date: 2026-09-17
+  - type: artifact
+    ref: 'gh issue view 29 -R moonsoup/ziggurat'
+    observed: a regression found by the reviewer that the author's sweep provably could not catch
+    date: 2026-09-17
+
+# ---------------------------------------------------------------- application security
+
+- control: AIS-12
+  title: Source code management practices (version control, code review)
+  answer: 'No'
+  ssrm: Owned by OSP
+  implementation: >
+    Version control is used for everything, but code review is not an enforced gate: this
+    is a single-maintainer project that pushes to a branch or to main directly, with no
+    pull-request approval required, so a change can land unreviewed. WHAT DOES EXIST: git
+    history with one commit per defect naming its issue; a test-first requirement; strict
+    xfail markers that make an unfixed defect visible in the suite; import-linter contracts
+    that fail the build on a layering or dependency violation; and the cross-vendor review
+    described under A&A-02, which is habitual and recorded but not mandatory.
+  evidence:
+  - type: code-survey
+    ref: 'git log --oneline -15  ->  one commit per issue, each naming it'
+    observed: no PR gate exists; review is a practice, not a control
+    date: 2026-09-17
+
+# ---------------------------------------------------------------- logging
+
+- control: LOG-10
+  title: Audit records protected from unauthorized access and modification
+  answer: 'No'
+  ssrm: Owned by OSP
+  implementation: >
+    The tool keeps no audit log of its own. WHAT DOES EXIST: a hash-chained custody ledger
+    written by a separate tool (stop-guessing) into `.stop-guessing/ledger/custody.jsonl`,
+    492 records, tracked in git, each record naming a keyid for an HMAC-SHA256 chain. Two
+    things stop that being an answer of Yes here, and both are recorded rather than
+    smoothed over: keyed verification could not be run in this environment (the chain key
+    is not available to the assessor, and the keyless mode reports honestly as "chain-only,
+    never tamper-proof"), and `stop-guessing ledger verify --path <file>` crashes with a
+    RecursionError, so a specific project's ledger cannot be verified at all today. The
+    ledger is also tamper-EVIDENT, not write-protected: an attacker with the repo can
+    rewrite history, and only the chain would show it.
+  evidence:
+  - type: test-run
+    ref: 'stop-guessing ledger verify --public  ->  PARTIAL: chain shape intact but keyed verification unavailable'
+    observed: honest degradation; the tool refuses to call chain-only verification tamper-proof
+    date: 2026-09-17
+  - type: test-run
+    ref: 'stop-guessing ledger verify --path <project ledger>  ->  RecursionError (cli/cmd_ledger.py:22, _path calls itself)'
+    observed: the per-project ledger cannot be verified; reported to the owner
+    date: 2026-09-17
+
+# ---------------------------------------------------------------- supply chain
+
+- control: STA-09
+  title: Bill of Materials for the service supply chain
+  answer: 'No'
+  ssrm: Owned by OSP
+  implementation: >
+    No BOM is produced and no process exists to produce one. WHAT DOES EXIST: the runtime
+    dependency set is empty and declared so — `dependencies = []` in pyproject.toml, with
+    a comment stating why — and the standard library is the whole runtime requirement, so
+    there is little for a BOM to say. The optional platform (SPIndlebox) is deliberately
+    NOT a dependency: `ziggurat.spindle_plugin` is the only module permitted to import it,
+    and an import-linter `forbidden` contract proves no other module does, so the tool runs
+    from a checkout with nothing installed. Development extras (pytest, ruff,
+    import-linter) are declared but unpinned.
+  evidence:
+  - type: config
+    ref: 'pyproject.toml  ->  dependencies = []'
+    observed: zero runtime dependencies; dev extras declared, not pinned
+    date: 2026-09-17
+  - type: config
+    ref: '.importlinter contract "Only the plugin module knows spindlebox exists"  ->  KEPT'
+    observed: the optional platform cannot leak into the checks
+    date: 2026-09-17
