@@ -360,6 +360,7 @@ def analyse(root) -> Report:
         return report.skip("structure", f"{root} is not a directory")
 
     files = list(_sources(root))
+    report.scanned = len(files)
     _entry_points(root, files, report)
     _dynamic_loading(files, root, report)
     _scattered_constants(files, root, report)

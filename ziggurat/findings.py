@@ -66,6 +66,9 @@ class Report:
     #: so they cannot crowd a decision, and kept rather than dropped because
     #: "we looked and found nothing conclusive" is itself worth reading.
     quiet: list = field(default_factory=list)
+    #: How many source files the analysis actually read. The number that
+    #: tells "found nothing" apart from "looked at nothing".
+    scanned: int = 0
 
     def add(self, finding: Finding) -> "Report":
         self.findings.append(finding)
@@ -144,6 +147,7 @@ class Report:
         """
         return {
             "project": self.project,
+            "scanned": self.scanned,
             "findings": [
                 {
                     "check": f.check,

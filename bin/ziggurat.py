@@ -6,6 +6,8 @@
     ziggurat report <path> --full     every site, and what was set aside
     ziggurat report <path> --json     structured, for an agent to plan against
     ziggurat drift <path>             report ONLY if the shape has moved
+    ziggurat sweep <root> --out DIR   the report for every project under root
+    ziggurat compare <before> <after> what a checker change changed
 
 `drift` exists because running a full report on every action is too expensive
 to live with, and running it never is how a project drifts. Deciding WHETHER
@@ -28,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ziggurat import report as reporting  # noqa: E402
 from ziggurat import shape as shaping  # noqa: E402
+from ziggurat import sweep as sweeping  # noqa: E402
 
 
 def main(argv=None) -> int:
@@ -54,7 +57,31 @@ def main(argv=None) -> int:
     d.add_argument("--quiet", action="store_true",
                    help="say nothing at all when the shape is unchanged")
 
+    s = sub.add_parser("sweep", help="the report for every project under a "
+                                     "directory, one JSON record each")
+    s.add_argument("root")
+    s.add_argument("--out", required=True,
+                   help="directory the per-project records are written to")
+    s.add_argument("--only", nargs="*", default=None,
+                   help="run only these analysers (structure, history)")
+
+    c = sub.add_parser("compare", help="what changed between two sweeps -- "
+                                       "run one before a checker change and "
+                                       "one after")
+    c.add_argument("before")
+    c.add_argument("after")
+
     args = ap.parse_args(argv)
+    if args.command == "sweep":
+        written = sweeping.run(args.root, args.out, only=args.only)
+        print(f"ziggurat: swept {len(written)} projects into {args.out}")
+        return 0
+
+    if args.command == "compare":
+        lines = sweeping.compare(args.before, args.after)
+        print("\n".join(lines) if lines else "ziggurat: no project changed")
+        return 0
+
     if args.command == "report":
         result = reporting.analyse(args.path, only=args.only)
         if args.json:

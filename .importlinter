@@ -23,6 +23,7 @@ type = layers
 # the start teaches everyone to ignore it. Levels are added here as the modules
 # that fill them are built.
 layers =
+    ziggurat.sweep
     ziggurat.report
     ziggurat.structure | ziggurat.history
     ziggurat.findings

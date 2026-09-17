@@ -35,4 +35,5 @@ def analyse(root, only=None) -> Report:
         # still observations, and losing them here would make the composed
         # report quieter than the analyser that produced it.
         combined.quiet.extend(part.quiet)
+        combined.scanned += part.scanned
     return combined
