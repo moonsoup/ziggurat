@@ -360,7 +360,6 @@ def test_looking_at_nothing_is_said_not_implied(tmp_path):
     assert "0 source files" in text, text
 
 
-@pytest.mark.xfail(strict=True, reason="#14")
 def test_tracked_source_under_a_build_named_directory_is_scanned(tmp_path):
     """git is asked what is ignored so that a NAME need not be guessed at --
     and then the name list overrode git's answer anyway. oligolia's
@@ -437,3 +436,15 @@ def test_the_other_ways_to_load_code_dynamically_are_found(tmp_path, code):
     write(tmp_path, "loader.py", code)
     assert [f for f in structure.analyse(tmp_path).findings
             if f.check == "dynamic-loading"]
+
+
+def test_untracked_build_output_is_still_skipped_under_git(tmp_path):
+    """Not ignored is not enough for a generic name: an unignored
+    `setup.py build` copies the package into `build/lib/`, and reading that
+    doubles every count the way a worktree did."""
+    for i in range(3):
+        write(tmp_path, f"pkg/m{i}.py", "x = 1\n")
+        write(tmp_path, f"build/lib/pkg/m{i}.py", "x = 1\n")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "pkg"], cwd=tmp_path, check=True)
+    assert structure.analyse(tmp_path).scanned == 3

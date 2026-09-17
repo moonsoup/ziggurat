@@ -58,6 +58,19 @@ SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist",
 #: actually meant.
 SKIP_PATHS = ((".claude", "worktrees"),)
 
+#: Names generic enough to be somebody's SOURCE. oligolia keeps hand-written
+#: PyInstaller hooks and build scripts in `build/`, tracked in git, and none
+#: of them was ever read: the name list overrode what git knew (#14).
+#:
+#: For these, a file git TRACKS is read. Not merely "not ignored": an
+#: unignored `setup.py build` leaves a second copy of the package under
+#: `build/lib/`, and counting that doubles every finding exactly the way a
+#: worktree did. Committed is the signal that somebody meant it. Where git
+#: cannot answer, the name is all there is and they are skipped as before.
+#: Everything else in SKIP_DIRS is somebody else's code or a tool's cache,
+#: and is skipped whatever git says.
+OUTPUT_DIRS = frozenset({"build", "dist", "target", "coverage"})
+
 SOURCE_SUFFIXES = {".py", ".sh", ".js", ".ts", ".rb", ".go", ".java", ".kt",
                    ".c", ".h"}
 
@@ -350,13 +363,32 @@ def _ignored(root: Path) -> set | None:
     return {(root / n).resolve() for n in names}
 
 
+def _tracked_output(root: Path) -> set:
+    """Files git tracks under an OUTPUT_DIRS name. Empty when it cannot say."""
+    try:
+        done = subprocess.run(["git", "-C", str(root), "ls-files", "-z"],
+                              capture_output=True, timeout=30, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    if done.returncode != 0:
+        return set()
+    names = [n for n in done.stdout.decode("utf-8", "replace").split("\0") if n]
+    return {(root / n).resolve() for n in names
+            if set(Path(n).parts) & OUTPUT_DIRS}
+
+
 def _sources(root: Path):
-    ignored = _ignored(root) or set()
+    ignored = _ignored(root)
+    # Only asked when git can answer for THIS tree; see `_ignored`.
+    tracked_output = _tracked_output(root) if ignored is not None else set()
+    ignored = ignored or set()
     for path in root.rglob("*"):
         if not path.is_file() or path.suffix not in SOURCE_SUFFIXES:
             continue
         parts = _inside(path, root).parts
-        if set(parts) & SKIP_DIRS:
+        named = set(parts) & SKIP_DIRS
+        if named and not (named <= OUTPUT_DIRS
+                          and path.resolve() in tracked_output):
             continue
         if any(any(parts[i:i + len(run)] == run
                    for i in range(len(parts) - len(run) + 1))
