@@ -55,6 +55,13 @@ class Finding:
         return f"[{mark}] {self.check}: {self.summary}"
 
 
+#: How many findings of ONE check the person-readable report lists before
+#: saying how many more there are. A display limit, never an analysis limit:
+#: change-coupling once judged only its forty most-shared pairs and dropped the
+#: rest without a word (#20). Every finding is still in `as_dict` and `--full`.
+SHOWN_PER_CHECK = 40
+
+
 @dataclass
 class Report:
     project: str = ""
@@ -104,7 +111,13 @@ class Report:
             if not group:
                 continue
             out.append(f"  --- {confidence.value} ---")
+            shown: dict = {}
+            held: dict = {}
             for finding in group:
+                if not full and shown.get(finding.check, 0) >= SHOWN_PER_CHECK:
+                    held[finding.check] = held.get(finding.check, 0) + 1
+                    continue
+                shown[finding.check] = shown.get(finding.check, 0) + 1
                 out.append(f"  {finding.line()}")
                 out.append(f"        {finding.evidence}")
                 if finding.suggestion:
@@ -118,6 +131,10 @@ class Report:
                         if isinstance(value, list):
                             value = ", ".join(str(v) for v in value)
                         out.append(f"        {key}: {value}")
+            for check, more in sorted(held.items()):
+                out.append(f"  ... and {more} more {check} "
+                           f"finding{'s' if more != 1 else ''} not listed "
+                           "(--full lists every one)")
             out.append("")
 
         # KEPT OUT OF THE DECISION PATH, and kept. Real observations that are

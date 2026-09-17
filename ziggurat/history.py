@@ -151,7 +151,9 @@ def analyse(root) -> Report:
         for pair in combinations(unique, 2):
             together[pair] += 1
 
-    for (left, right), shared in together.most_common(40):
+    # EVERY PAIR. `most_common(40)` judged only the forty most-shared pairs
+    # and dropped the rest without a word, however coupled (#20).
+    for (left, right), shared in together.most_common():
         if shared < MIN_SHARED:
             continue
         if _pairs_as_test(left, right):

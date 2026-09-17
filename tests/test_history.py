@@ -2,8 +2,6 @@
 
 import subprocess
 
-import pytest
-
 from ziggurat import history
 from ziggurat.findings import Confidence
 
@@ -195,7 +193,6 @@ def test_the_evidence_gives_the_real_commit_counts(tmp_path):
         [f.evidence for f in found]
 
 
-@pytest.mark.xfail(strict=True, reason="#20")
 def test_no_coupled_pair_is_dropped_by_a_display_cap(tmp_path):
     """Only the forty most-shared pairs were ever looked at. The rest were
     dropped without a word, however coupled."""
@@ -207,3 +204,20 @@ def test_no_coupled_pair_is_dropped_by_a_display_cap(tmp_path):
     found = [f for f in history.analyse(tmp_path).findings
              if f.summary.startswith("q")]
     assert len(found) == 45, len(found)
+
+
+def test_the_readable_report_says_how_many_it_did_not_list(tmp_path):
+    """A cap on what a PERSON reads, never on what is judged: every pair is
+    still a finding, and the report says how many it held back."""
+    from ziggurat.findings import SHOWN_PER_CHECK, Finding, Report
+
+    report = Report(project="p")
+    for n in range(SHOWN_PER_CHECK + 5):
+        report.add(Finding(check="change-coupling", summary=f"pair {n}",
+                           evidence="e", confidence=Confidence.EMPIRICAL))
+    text = report.render()
+    assert f"pair {SHOWN_PER_CHECK - 1}" in text
+    assert f"pair {SHOWN_PER_CHECK}" not in text
+    assert "and 5 more change-coupling findings not listed" in text
+    assert f"pair {SHOWN_PER_CHECK + 4}" in report.render(full=True)
+    assert len(report.as_dict()["findings"]) == SHOWN_PER_CHECK + 5
