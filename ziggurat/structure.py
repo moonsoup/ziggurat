@@ -635,9 +635,11 @@ def _rebound_at_module_level(tree) -> set:
         for child in ast.iter_child_nodes(node):
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef,
                                   ast.ClassDef)):
+                # The NAME is bound here; the BODY is its own scope. Descending
+                # into a class body counted `class C: os = object()` as
+                # rebinding the module `os`, which suppressed a real finding at
+                # module level -- #29, found by an independent review of #26.
                 names.add(child.name)
-                if isinstance(child, ast.ClassDef):
-                    visit(child)
                 continue
             if isinstance(child, ast.Lambda):
                 continue

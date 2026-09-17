@@ -547,3 +547,23 @@ def test_every_advertised_qualified_form_is_seen(tmp_path, call) -> None:
     root = project(tmp_path, {f"m{i}.py": call for i in range(5)})
     assert any("outputs" in f.summary and "5 files" in f.summary
                for f in findings(root)), findings(root)
+
+
+def test_a_class_body_assignment_does_not_unbind_the_module(tmp_path) -> None:
+    """#29, found by Codex: a class body is its OWN scope, so `os` assigned
+    inside one does not stop `os.makedirs(...)` at module level being the
+    module. #26's guard descended into class bodies and suppressed a real
+    finding -- the #15 capability lost to the fix for #26."""
+    root = project(tmp_path, {
+        f"m{i}.py": 'import os\n\n\nclass C:\n    os = object()\n\n\nos.makedirs("outputs")\n'
+        for i in range(5)})
+    assert any("outputs" in f.summary and "5 files" in f.summary
+               for f in findings(root)), findings(root)
+
+
+def test_a_class_named_like_a_module_still_unbinds_it(tmp_path) -> None:
+    """The class's own NAME is bound at module level, so this must stay quiet."""
+    root = project(tmp_path, {
+        f"m{i}.py": 'import os\n\n\nclass os:\n    pass\n\n\nos.makedirs("outputs")\n'
+        for i in range(5)})
+    assert findings(root) == [], findings(root)

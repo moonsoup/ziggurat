@@ -53,3 +53,9 @@ subject that silently did not run cannot be counted as equal.
 
 Subject trees were dirty when measured (ziggurat 12 files, spindlebox 4, oligolia 1); the verdict
 records each commit and count, because uncommitted files are part of what Ziggurat reads.
+
+### Codex's review of the plugin move (msg_007)
+
+| item | state | evidence |
+|---|---|---|
+| a class-body assignment does not unbind a path module at module level | [fixed] | #29, a regression the #26 fix introduced: `import os` + `class C: os = object()` + `os.makedirs("outputs")` ×5 reported nothing. Latent on the pinned corpus — pre-fix vs post-fix structure reports are identical for all 3 subjects, which is why the sweep missed it and a hand-built fixture found it |
