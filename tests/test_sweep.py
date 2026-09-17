@@ -154,3 +154,18 @@ def test_compare_stays_terse_unless_asked(tmp_path) -> None:
     _record_with_sites(before, "alpha", [])
     _record_with_sites(after, "alpha", [("x", "y", ["one.py"])])
     assert not any("one.py" in line for line in sweep.compare(before, after))
+
+
+def test_compare_sees_a_finding_whose_sites_changed_under_one_summary(
+        tmp_path) -> None:
+    """Found by Codex's review (agent_comms msg_003). Keyed on summary
+    alone, `x appears in 4 files` moving to four DIFFERENT files compared
+    as unchanged -- four sites lost and four gained, silently."""
+    before, after = tmp_path / "before", tmp_path / "after"
+    _record_with_sites(before, "alpha", [
+        ("scattered-path", "x appears in 4 files", ["a.py", "b.py", "c.py", "d.py"])])
+    _record_with_sites(after, "alpha", [
+        ("scattered-path", "x appears in 4 files", ["a.py", "b.py", "c.py", "e.py"])])
+    lines = sweep.compare(before, after, sites=True)
+    assert any("x appears in 4 files" in line for line in lines), lines
+    assert "      - d.py" in lines and "      + e.py" in lines, lines

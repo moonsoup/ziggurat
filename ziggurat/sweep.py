@@ -82,6 +82,19 @@ def compare(before, after, sites: bool = False) -> list:
                 body.append(f"  {mark} {line}")
                 if sites:
                     body.extend(f"      {where}" for where in gone[line])
+        # SAME WORDS, DIFFERENT FILES. A summary carries a count, not the
+        # sites, so a finding that lost one real site and gained a false one
+        # read as unchanged -- the verification going blind in the one case
+        # it exists for (#25, found by Codex's review).
+        for line in sorted(set(said_was) & set(said_now)):
+            lost = sorted(set(said_was[line]) - set(said_now[line]))
+            gained = sorted(set(said_now[line]) - set(said_was[line]))
+            if not (lost or gained):
+                continue
+            body.append(f"  ~ {line}  (sites changed)")
+            if sites:
+                body.extend(f"      - {where}" for where in lost)
+                body.extend(f"      + {where}" for where in gained)
         if body:
             lines.append(name)
             lines.extend(body)
