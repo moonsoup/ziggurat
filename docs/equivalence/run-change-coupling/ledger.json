@@ -1,0 +1,93 @@
+[
+ {
+  "seq": 1,
+  "instanceId": "ziggurat",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "97a25a33abc83bcd",
+  "at": "2026-09-17T20:09:31.170Z"
+ },
+ {
+  "seq": 2,
+  "instanceId": "spindlebox",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "94ea8c234d276b8c",
+  "at": "2026-09-17T20:09:31.170Z"
+ },
+ {
+  "seq": 3,
+  "instanceId": "oligolia",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "2ffc3614d6e6e414",
+  "at": "2026-09-17T20:09:31.170Z"
+ },
+ {
+  "seq": 4,
+  "instanceId": "miniproj_bash",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "dfb6b98645b70c88",
+  "at": "2026-09-17T20:09:31.170Z"
+ },
+ {
+  "seq": 5,
+  "instanceId": "miniproj_c",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "239803369653d6eb",
+  "at": "2026-09-17T20:09:31.170Z"
+ },
+ {
+  "seq": 6,
+  "instanceId": "miniproj_edge",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "a99e872563e48d2c",
+  "at": "2026-09-17T20:09:31.170Z"
+ },
+ {
+  "seq": 7,
+  "instanceId": "miniproj_gaps",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "d9c38210782a3fce",
+  "at": "2026-09-17T20:09:31.170Z"
+ },
+ {
+  "seq": 8,
+  "instanceId": "miniproj_go",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "7076a5aa9626cd20",
+  "at": "2026-09-17T20:09:31.170Z"
+ },
+ {
+  "seq": 9,
+  "instanceId": "miniproj_java",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "48d46df93afc7926",
+  "at": "2026-09-17T20:09:31.170Z"
+ },
+ {
+  "seq": 10,
+  "instanceId": "miniproj_js",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "a0bb1b16961a0b7e",
+  "at": "2026-09-17T20:09:31.170Z"
+ },
+ {
+  "seq": 11,
+  "instanceId": "miniproj_mixed",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "2f613b6b6fb87143",
+  "at": "2026-09-17T20:09:31.170Z"
+ },
+ {
+  "seq": 12,
+  "instanceId": "miniproj_py",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "a52e5dc817a98388",
+  "at": "2026-09-17T20:09:31.170Z"
+ },
+ {
+  "seq": 13,
+  "instanceId": "miniproj_rust",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "79d92a908b9489ea",
+  "at": "2026-09-17T20:09:31.170Z"
+ }
+]

@@ -1,0 +1,561 @@
+[
+ {
+  "seq": 1,
+  "instanceId": "ziggurat",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "97a25a33abc83bcd",
+  "at": "2026-09-17T20:09:31.170Z",
+  "state": {
+   "repo": true,
+   "head": "c426e88473d527d0f5de021589d1fcf29b842d66",
+   "dirty": 5
+  },
+  "a": {
+   "argv": [
+    "python3",
+    "/Users/isme/Software/ziggurat/bin/ziggurat.py",
+    "report",
+    "/Users/isme/Software/ziggurat",
+    "--only",
+    "history",
+    "--json"
+   ],
+   "exitCode": 0,
+   "sha256": "a4583f6035cde3335a3e3f19c54e6e1d40ac97335ce4ffd41f22a55da66bd1ca",
+   "bytes": 3274,
+   "stderr": ""
+  },
+  "b": {
+   "argv": [
+    "spindlebox",
+    "report",
+    "ziggurat:change-coupling",
+    "--ctx",
+    "{\"root\": \"/Users/isme/Software/ziggurat\"}",
+    "--format",
+    "json"
+   ],
+   "exitCode": 0,
+   "sha256": "458c8f38c14448023f64a8be07c8dc0ad1457571bf79d6f17e0c9d663724692b",
+   "bytes": 3305,
+   "stderr": ""
+  },
+  "verdict": "equal"
+ },
+ {
+  "seq": 2,
+  "instanceId": "spindlebox",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "94ea8c234d276b8c",
+  "at": "2026-09-17T20:09:31.170Z",
+  "state": {
+   "repo": true,
+   "head": "8646f25b2a0e0f34da740bdd4da1fedd291acd87",
+   "dirty": 0
+  },
+  "a": {
+   "argv": [
+    "python3",
+    "/Users/isme/Software/ziggurat/bin/ziggurat.py",
+    "report",
+    "/Users/isme/Software/spindlebox",
+    "--only",
+    "history",
+    "--json"
+   ],
+   "exitCode": 0,
+   "sha256": "e0258ff95516582f1694583994b6a79442e5131c45a54f316effc420ad66ac07",
+   "bytes": 1573,
+   "stderr": ""
+  },
+  "b": {
+   "argv": [
+    "spindlebox",
+    "report",
+    "ziggurat:change-coupling",
+    "--ctx",
+    "{\"root\": \"/Users/isme/Software/spindlebox\"}",
+    "--format",
+    "json"
+   ],
+   "exitCode": 0,
+   "sha256": "d81fa43512e76b3b6afadea4177d7d80b8745d8120977bd8ac97abd4c6ab3741",
+   "bytes": 1630,
+   "stderr": ""
+  },
+  "verdict": "equal"
+ },
+ {
+  "seq": 3,
+  "instanceId": "oligolia",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "2ffc3614d6e6e414",
+  "at": "2026-09-17T20:09:31.170Z",
+  "state": {
+   "repo": true,
+   "head": "10776926b224bebfb1c1cb1570ab69716f003828",
+   "dirty": 1
+  },
+  "a": {
+   "argv": [
+    "python3",
+    "/Users/isme/Software/ziggurat/bin/ziggurat.py",
+    "report",
+    "/Users/isme/Software/oligolia",
+    "--only",
+    "history",
+    "--json"
+   ],
+   "exitCode": 0,
+   "sha256": "c7ee6b3b93584349cf6c6d16abc08b6792d081ceda09a0188c6d6fc13dba8ed3",
+   "bytes": 2123,
+   "stderr": ""
+  },
+  "b": {
+   "argv": [
+    "spindlebox",
+    "report",
+    "ziggurat:change-coupling",
+    "--ctx",
+    "{\"root\": \"/Users/isme/Software/oligolia\"}",
+    "--format",
+    "json"
+   ],
+   "exitCode": 0,
+   "sha256": "44e4b2d9fc4f8487b35b53adc8619b5f841584eb70ad1b693910cd162d6f4eac",
+   "bytes": 2166,
+   "stderr": ""
+  },
+  "verdict": "equal"
+ },
+ {
+  "seq": 4,
+  "instanceId": "miniproj_bash",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "dfb6b98645b70c88",
+  "at": "2026-09-17T20:09:31.170Z",
+  "state": {
+   "repo": true,
+   "head": "8646f25b2a0e0f34da740bdd4da1fedd291acd87",
+   "dirty": 0
+  },
+  "a": {
+   "argv": [
+    "python3",
+    "/Users/isme/Software/ziggurat/bin/ziggurat.py",
+    "report",
+    "/Users/isme/Software/spindlebox/tests/fixtures/miniproj_bash",
+    "--only",
+    "history",
+    "--json"
+   ],
+   "exitCode": 0,
+   "sha256": "6b49beccd4976579064704eb71b540f553227dda0f0583d6cf203d5a967e4623",
+   "bytes": 251,
+   "stderr": ""
+  },
+  "b": {
+   "argv": [
+    "spindlebox",
+    "report",
+    "ziggurat:change-coupling",
+    "--ctx",
+    "{\"root\": \"/Users/isme/Software/spindlebox/tests/fixtures/miniproj_bash\"}",
+    "--format",
+    "json"
+   ],
+   "exitCode": 0,
+   "sha256": "f14ad8b581a2fb26dddc61914a49c2b82eb5f2fd78c7bf7f4af8528494e63a7d",
+   "bytes": 333,
+   "stderr": ""
+  },
+  "verdict": "equal"
+ },
+ {
+  "seq": 5,
+  "instanceId": "miniproj_c",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "239803369653d6eb",
+  "at": "2026-09-17T20:09:31.170Z",
+  "state": {
+   "repo": true,
+   "head": "8646f25b2a0e0f34da740bdd4da1fedd291acd87",
+   "dirty": 0
+  },
+  "a": {
+   "argv": [
+    "python3",
+    "/Users/isme/Software/ziggurat/bin/ziggurat.py",
+    "report",
+    "/Users/isme/Software/spindlebox/tests/fixtures/miniproj_c",
+    "--only",
+    "history",
+    "--json"
+   ],
+   "exitCode": 0,
+   "sha256": "aaa8254eb280c1dc3b4c739d07d0ee25070c260bfee47165e690e2c977289a39",
+   "bytes": 245,
+   "stderr": ""
+  },
+  "b": {
+   "argv": [
+    "spindlebox",
+    "report",
+    "ziggurat:change-coupling",
+    "--ctx",
+    "{\"root\": \"/Users/isme/Software/spindlebox/tests/fixtures/miniproj_c\"}",
+    "--format",
+    "json"
+   ],
+   "exitCode": 0,
+   "sha256": "d51d6a8d2ac3aaef8063103b9b261dd4884ef69440dea17a8cc4971599d9d4df",
+   "bytes": 324,
+   "stderr": ""
+  },
+  "verdict": "equal"
+ },
+ {
+  "seq": 6,
+  "instanceId": "miniproj_edge",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "a99e872563e48d2c",
+  "at": "2026-09-17T20:09:31.170Z",
+  "state": {
+   "repo": true,
+   "head": "8646f25b2a0e0f34da740bdd4da1fedd291acd87",
+   "dirty": 0
+  },
+  "a": {
+   "argv": [
+    "python3",
+    "/Users/isme/Software/ziggurat/bin/ziggurat.py",
+    "report",
+    "/Users/isme/Software/spindlebox/tests/fixtures/miniproj_edge",
+    "--only",
+    "history",
+    "--json"
+   ],
+   "exitCode": 0,
+   "sha256": "cef795c2e7969063adff4557f00163bede10c8963a6ae0cd2500af9afacbc58a",
+   "bytes": 251,
+   "stderr": ""
+  },
+  "b": {
+   "argv": [
+    "spindlebox",
+    "report",
+    "ziggurat:change-coupling",
+    "--ctx",
+    "{\"root\": \"/Users/isme/Software/spindlebox/tests/fixtures/miniproj_edge\"}",
+    "--format",
+    "json"
+   ],
+   "exitCode": 0,
+   "sha256": "0897c1177297607da1a879f2d23c3e6b2d4a35d07fa7199e4e06846304282983",
+   "bytes": 333,
+   "stderr": ""
+  },
+  "verdict": "equal"
+ },
+ {
+  "seq": 7,
+  "instanceId": "miniproj_gaps",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "d9c38210782a3fce",
+  "at": "2026-09-17T20:09:31.170Z",
+  "state": {
+   "repo": true,
+   "head": "8646f25b2a0e0f34da740bdd4da1fedd291acd87",
+   "dirty": 0
+  },
+  "a": {
+   "argv": [
+    "python3",
+    "/Users/isme/Software/ziggurat/bin/ziggurat.py",
+    "report",
+    "/Users/isme/Software/spindlebox/tests/fixtures/miniproj_gaps",
+    "--only",
+    "history",
+    "--json"
+   ],
+   "exitCode": 0,
+   "sha256": "a0480a0c03b201da3cd2006d3d0edfc3c1d360ec871857e838e1904edadfa794",
+   "bytes": 251,
+   "stderr": ""
+  },
+  "b": {
+   "argv": [
+    "spindlebox",
+    "report",
+    "ziggurat:change-coupling",
+    "--ctx",
+    "{\"root\": \"/Users/isme/Software/spindlebox/tests/fixtures/miniproj_gaps\"}",
+    "--format",
+    "json"
+   ],
+   "exitCode": 0,
+   "sha256": "c3aa966f064c0e341f758dcf84bbf8386f755fe30ad5550a789af20ac87ddacd",
+   "bytes": 333,
+   "stderr": ""
+  },
+  "verdict": "equal"
+ },
+ {
+  "seq": 8,
+  "instanceId": "miniproj_go",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "7076a5aa9626cd20",
+  "at": "2026-09-17T20:09:31.170Z",
+  "state": {
+   "repo": true,
+   "head": "8646f25b2a0e0f34da740bdd4da1fedd291acd87",
+   "dirty": 0
+  },
+  "a": {
+   "argv": [
+    "python3",
+    "/Users/isme/Software/ziggurat/bin/ziggurat.py",
+    "report",
+    "/Users/isme/Software/spindlebox/tests/fixtures/miniproj_go",
+    "--only",
+    "history",
+    "--json"
+   ],
+   "exitCode": 0,
+   "sha256": "0d1c693187717626acf79d558278e0c6f95c3e3803807698cf3108c201d08de8",
+   "bytes": 247,
+   "stderr": ""
+  },
+  "b": {
+   "argv": [
+    "spindlebox",
+    "report",
+    "ziggurat:change-coupling",
+    "--ctx",
+    "{\"root\": \"/Users/isme/Software/spindlebox/tests/fixtures/miniproj_go\"}",
+    "--format",
+    "json"
+   ],
+   "exitCode": 0,
+   "sha256": "2577b6f00023a141edfe67bdca8d5810a8662518b127bb2598a1e76e2ca81ea7",
+   "bytes": 327,
+   "stderr": ""
+  },
+  "verdict": "equal"
+ },
+ {
+  "seq": 9,
+  "instanceId": "miniproj_java",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "48d46df93afc7926",
+  "at": "2026-09-17T20:09:31.170Z",
+  "state": {
+   "repo": true,
+   "head": "8646f25b2a0e0f34da740bdd4da1fedd291acd87",
+   "dirty": 0
+  },
+  "a": {
+   "argv": [
+    "python3",
+    "/Users/isme/Software/ziggurat/bin/ziggurat.py",
+    "report",
+    "/Users/isme/Software/spindlebox/tests/fixtures/miniproj_java",
+    "--only",
+    "history",
+    "--json"
+   ],
+   "exitCode": 0,
+   "sha256": "6312b84717163a7270bf8f365969197a2130753670e7a666a04aeaea182e78cc",
+   "bytes": 251,
+   "stderr": ""
+  },
+  "b": {
+   "argv": [
+    "spindlebox",
+    "report",
+    "ziggurat:change-coupling",
+    "--ctx",
+    "{\"root\": \"/Users/isme/Software/spindlebox/tests/fixtures/miniproj_java\"}",
+    "--format",
+    "json"
+   ],
+   "exitCode": 0,
+   "sha256": "0cc539bbdb02ce523dc7545dabfbcd5d94206da690137c11978d88f862797c67",
+   "bytes": 333,
+   "stderr": ""
+  },
+  "verdict": "equal"
+ },
+ {
+  "seq": 10,
+  "instanceId": "miniproj_js",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "a0bb1b16961a0b7e",
+  "at": "2026-09-17T20:09:31.170Z",
+  "state": {
+   "repo": true,
+   "head": "8646f25b2a0e0f34da740bdd4da1fedd291acd87",
+   "dirty": 0
+  },
+  "a": {
+   "argv": [
+    "python3",
+    "/Users/isme/Software/ziggurat/bin/ziggurat.py",
+    "report",
+    "/Users/isme/Software/spindlebox/tests/fixtures/miniproj_js",
+    "--only",
+    "history",
+    "--json"
+   ],
+   "exitCode": 0,
+   "sha256": "cc733dfdb73b495b4e90ebcb55fd78a596456f83c5cbd34393713497fbebecd3",
+   "bytes": 247,
+   "stderr": ""
+  },
+  "b": {
+   "argv": [
+    "spindlebox",
+    "report",
+    "ziggurat:change-coupling",
+    "--ctx",
+    "{\"root\": \"/Users/isme/Software/spindlebox/tests/fixtures/miniproj_js\"}",
+    "--format",
+    "json"
+   ],
+   "exitCode": 0,
+   "sha256": "5af156f509c6784c6bbbdc626f812371ea97584a36a1a5efa2791ac050945ee2",
+   "bytes": 327,
+   "stderr": ""
+  },
+  "verdict": "equal"
+ },
+ {
+  "seq": 11,
+  "instanceId": "miniproj_mixed",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "2f613b6b6fb87143",
+  "at": "2026-09-17T20:09:31.170Z",
+  "state": {
+   "repo": true,
+   "head": "8646f25b2a0e0f34da740bdd4da1fedd291acd87",
+   "dirty": 0
+  },
+  "a": {
+   "argv": [
+    "python3",
+    "/Users/isme/Software/ziggurat/bin/ziggurat.py",
+    "report",
+    "/Users/isme/Software/spindlebox/tests/fixtures/miniproj_mixed",
+    "--only",
+    "history",
+    "--json"
+   ],
+   "exitCode": 0,
+   "sha256": "14497848f13da04abf0c52669f41d7bf8a556d0a43fd33501de52d0d26c260ea",
+   "bytes": 253,
+   "stderr": ""
+  },
+  "b": {
+   "argv": [
+    "spindlebox",
+    "report",
+    "ziggurat:change-coupling",
+    "--ctx",
+    "{\"root\": \"/Users/isme/Software/spindlebox/tests/fixtures/miniproj_mixed\"}",
+    "--format",
+    "json"
+   ],
+   "exitCode": 0,
+   "sha256": "766134dc448412f359e132687d629843519c3bc2ca30cad33a0889c07e077dc7",
+   "bytes": 336,
+   "stderr": ""
+  },
+  "verdict": "equal"
+ },
+ {
+  "seq": 12,
+  "instanceId": "miniproj_py",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "a52e5dc817a98388",
+  "at": "2026-09-17T20:09:31.170Z",
+  "state": {
+   "repo": true,
+   "head": "8646f25b2a0e0f34da740bdd4da1fedd291acd87",
+   "dirty": 0
+  },
+  "a": {
+   "argv": [
+    "python3",
+    "/Users/isme/Software/ziggurat/bin/ziggurat.py",
+    "report",
+    "/Users/isme/Software/spindlebox/tests/fixtures/miniproj_py",
+    "--only",
+    "history",
+    "--json"
+   ],
+   "exitCode": 0,
+   "sha256": "e12d676f7c4e0ed492ce9ac430fcac074c6fe691140f8795c818cc59b575842d",
+   "bytes": 247,
+   "stderr": ""
+  },
+  "b": {
+   "argv": [
+    "spindlebox",
+    "report",
+    "ziggurat:change-coupling",
+    "--ctx",
+    "{\"root\": \"/Users/isme/Software/spindlebox/tests/fixtures/miniproj_py\"}",
+    "--format",
+    "json"
+   ],
+   "exitCode": 0,
+   "sha256": "9777cf06b584cba6a7b7ee4228eb6483f341771d20569b0c8afa891f1767a472",
+   "bytes": 327,
+   "stderr": ""
+  },
+  "verdict": "equal"
+ },
+ {
+  "seq": 13,
+  "instanceId": "miniproj_rust",
+  "workflow": "ziggurat-plugin-equivalence",
+  "nonce": "79d92a908b9489ea",
+  "at": "2026-09-17T20:09:31.170Z",
+  "state": {
+   "repo": true,
+   "head": "8646f25b2a0e0f34da740bdd4da1fedd291acd87",
+   "dirty": 0
+  },
+  "a": {
+   "argv": [
+    "python3",
+    "/Users/isme/Software/ziggurat/bin/ziggurat.py",
+    "report",
+    "/Users/isme/Software/spindlebox/tests/fixtures/miniproj_rust",
+    "--only",
+    "history",
+    "--json"
+   ],
+   "exitCode": 0,
+   "sha256": "f00884f180e5552c013b0da015adf754be48d4373b5abbca7c1f83dc5306a0dd",
+   "bytes": 251,
+   "stderr": ""
+  },
+  "b": {
+   "argv": [
+    "spindlebox",
+    "report",
+    "ziggurat:change-coupling",
+    "--ctx",
+    "{\"root\": \"/Users/isme/Software/spindlebox/tests/fixtures/miniproj_rust\"}",
+    "--format",
+    "json"
+   ],
+   "exitCode": 0,
+   "sha256": "53675a579a5cd1926ac1eaa05dbe8195266736cd01bc2f3bd88aa00a0830528c",
+   "bytes": 333,
+   "stderr": ""
+  },
+  "verdict": "equal"
+ }
+]
