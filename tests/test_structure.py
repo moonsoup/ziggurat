@@ -360,6 +360,16 @@ def test_looking_at_nothing_is_said_not_implied(tmp_path):
     assert "0 source files" in text, text
 
 
+@pytest.mark.parametrize("name", ["build", "dist", "target", "coverage"])
+def test_tracked_source_under_every_output_name_is_scanned(tmp_path, name):
+    """Codex: the #14 test proved `build/` alone of the four names."""
+    for i in range(5):
+        write(tmp_path, f"{name}/hooks/hook{i}.py", "x = 1\n")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "-A", "-f"], cwd=tmp_path, check=True)
+    assert structure.analyse(tmp_path).scanned == 5
+
+
 def test_tracked_source_under_a_build_named_directory_is_scanned(tmp_path):
     """git is asked what is ignored so that a NAME need not be guessed at --
     and then the name list overrode git's answer anyway. oligolia's

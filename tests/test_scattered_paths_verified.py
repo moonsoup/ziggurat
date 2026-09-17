@@ -497,3 +497,53 @@ def test_heads_of_prefixed_relative_paths() -> None:
     assert S._path_head("../../data/x.json") == "../../data"
     assert S._path_head("../x.json") == ""
     assert S._path_head("//cdn.example.com/lib/a.css") == ""
+
+
+# --- from Codex's review of #12-#17 (agent_comms msg_003) --------------------
+
+def test_a_local_named_like_an_imported_module_is_not_the_module(
+        tmp_path) -> None:
+    """`from os import path` at the top, and a function whose own `path`
+    parameter is a pathlib object: `path.write_text("draft")` writes CONTENT.
+    Qualifying by import alone took "draft" as a path in every such file.
+    Bare words, so only the qualification can collect them."""
+    root = project(tmp_path, {
+        f"m{i}.py": 'from os import path\n\n\ndef save(path):\n'
+                    '    path.write_text("draft")\n'
+        for i in range(5)})
+    assert findings(root) == [], findings(root)
+
+
+def test_a_module_name_rebound_at_module_level_is_not_the_module(
+        tmp_path) -> None:
+    root = project(tmp_path, {
+        f"m{i}.py": 'import os\nos = Status()\nos.exists("state")\n'
+        for i in range(5)})
+    assert findings(root) == [], findings(root)
+
+
+def test_the_module_is_still_the_module_where_nothing_shadows_it(
+        tmp_path) -> None:
+    """The fix must not cost #15: a parameter named `path` in ANOTHER
+    function does not unbind the module in this one."""
+    root = project(tmp_path, {
+        f"m{i}.py": 'from os import path\n\n\ndef other(path):\n    return path\n\n\n'
+                    'def ready():\n    return path.exists("outputs")\n'
+        for i in range(5)})
+    assert any("outputs" in f.summary for f in findings(root)), findings(root)
+
+
+@pytest.mark.parametrize("call", [
+    'import os as o\no.makedirs("outputs")\n',
+    'import pathlib as pl\npl.Path("outputs")\n',
+    'from os import path\npath.exists("outputs")\n',
+    'import glob\nglob.glob("outputs")\n',
+    'import shutil as sh\nsh.copytree("outputs", dst)\n',
+    'import posixpath\nposixpath.isdir("outputs")\n',
+    'def f():\n    import os\n    os.makedirs("outputs")\n',
+])
+def test_every_advertised_qualified_form_is_seen(tmp_path, call) -> None:
+    """Codex: #15's tests exercised one alias shape of the many claimed."""
+    root = project(tmp_path, {f"m{i}.py": call for i in range(5)})
+    assert any("outputs" in f.summary and "5 files" in f.summary
+               for f in findings(root)), findings(root)

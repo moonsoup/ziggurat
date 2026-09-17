@@ -598,6 +598,57 @@ def _path_module_names(tree) -> set:
     return names
 
 
+FUNCTION_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+
+
+def _enclosing_functions(tree) -> dict:
+    """id(node) -> the innermost function whose body holds it (None: module)."""
+    owner: dict = {}
+
+    def visit(node, func) -> None:
+        for child in ast.iter_child_nodes(node):
+            owner[id(child)] = func
+            visit(child, child if isinstance(child, FUNCTION_SCOPES) else func)
+
+    visit(tree, None)
+    return owner
+
+
+def _rebound_in(func) -> set:
+    """Names a function binds to something OTHER than an import: its
+    parameters and anything it assigns. Deliberately not `_bound_in`, which
+    counts imports as bindings -- `import os` inside a function is still os."""
+    a = func.args
+    names = {p.arg for p in (*a.posonlyargs, *a.args, *a.kwonlyargs)}
+    names.update(extra.arg for extra in (a.vararg, a.kwarg) if extra)
+    for node in ast.walk(func):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            names.add(node.id)
+    return names
+
+
+def _rebound_at_module_level(tree) -> set:
+    """Names assigned or defined at module level, outside any function."""
+    names: set = set()
+
+    def visit(node) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                  ast.ClassDef)):
+                names.add(child.name)
+                if isinstance(child, ast.ClassDef):
+                    visit(child)
+                continue
+            if isinstance(child, ast.Lambda):
+                continue
+            if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store):
+                names.add(child.id)
+            visit(child)
+
+    visit(tree)
+    return names
+
+
 def _python_path_strings(text: str) -> set:
     """Strings this module USES as paths, by reading the syntax.
 
@@ -624,7 +675,26 @@ def _python_path_strings(text: str) -> set:
         return set()
 
     found: set = set()
-    modules = _path_module_names(tree)
+    modules = _path_module_names(tree) - _rebound_at_module_level(tree)
+    owner = _enclosing_functions(tree)
+    rebound: dict = {}
+
+    def is_the_module(call) -> bool:
+        """Is this receiver still the imported module HERE? `from os import
+        path` at the top does not make a function's own `path` parameter
+        os.path: `path.write_text("draft")` writes content, and taking it as
+        a qualified path call reported "draft" as a scattered path (#26)."""
+        name = _leftmost_name(call.func.value)
+        if name not in modules:
+            return False
+        func = owner.get(id(call))
+        while func is not None:
+            if id(func) not in rebound:
+                rebound[id(func)] = _rebound_in(func)
+            if name in rebound[id(func)]:
+                return False
+            func = owner.get(id(func))
+        return True
 
     def take(node) -> None:
         literal = _literal_of(node)
@@ -636,8 +706,7 @@ def _python_path_strings(text: str) -> set:
         if isinstance(node, ast.Call):
             name = _call_name(node)
             attribute = isinstance(node.func, ast.Attribute)
-            qualified = attribute and \
-                _leftmost_name(node.func.value) in modules
+            qualified = attribute and is_the_module(node)
             if name in PATH_CALLS and (not attribute or qualified
                                        or name in JOINING):
                 # On a METHOD the path is the object and the arguments are

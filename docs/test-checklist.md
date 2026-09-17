@@ -29,6 +29,9 @@ Baseline sweep: 992db24, 45 projects under `~/Software`.
 | singleton-bottleneck readers must be able to see the config | [broken] | #22 | parameter `name` in 4 modules → "read by" 4 |
 | dynamic-loading sees `import_module`, `run_path`, `exec(open())`, `load_source` | [broken] | #23 | each → `[]` |
 | Docs name every check; every module is under the import contract | [broken] | #24 | README and structure docstring omit 2 checks; `.importlinter` omits `shape` |
+| compare shows a finding whose sites changed under the same summary | [fixed] | #25 | found by Codex review (agent_comms msg_003): same summary, different files → `[]`. 2026-09-17: prints `~ ... (sites changed)` with `-`/`+` files under `--sites` |
+| #15 qualification respects a rebound name (`from os import path` + local `path`) | [fixed] | #26 | found evaluating Codex msg_003: `path.write_text("draft")` ×5 → `draft appears in 5 files`. 2026-09-17: scope-aware; nothing-shadows control still found; sweep: no project changed (latent, not live) |
+| #14 holds for all of build/dist/target/coverage; #15 holds for every alias form | [working] | #14 #15 | Codex msg_003 test gaps; parametrised tests added 2026-09-17 pass without code change |
 | `method.open("a")` / `name.replace("a", "b")` still not paths | [working] | — | control test passes at 992db24 |
 | drift silent when nothing, or only a comment, changed | [working] | — | control tests pass at 992db24 |
 | gitignored and vendored trees stay skipped, with or without git | [working] | — | control tests pass at 992db24 |
