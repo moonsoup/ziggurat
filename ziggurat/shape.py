@@ -122,7 +122,9 @@ def shape(root, suffixes=None) -> dict:
     for path in sorted(root.rglob("*")):
         if path.suffix not in wanted or not path.is_file():
             continue
-        if any(part in SKIP for part in path.parts):
+        # Inside the project only: an ancestor called `build/` is not the
+        # project's build output. (#12)
+        if any(part in SKIP for part in path.relative_to(root).parts):
             continue
         try:
             source = path.read_text(errors="replace")

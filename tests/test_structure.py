@@ -337,7 +337,6 @@ import subprocess  # noqa: E402
 import pytest  # noqa: E402
 
 
-@pytest.mark.xfail(strict=True, reason="#12")
 def test_an_ancestor_named_tools_does_not_make_a_library_sprawl(tmp_path):
     """`ENTRY_DIRS` was matched against the absolute path, so eight library
     modules anywhere under a directory called `tools/` were eight entry

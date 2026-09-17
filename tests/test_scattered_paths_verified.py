@@ -388,7 +388,6 @@ import pytest  # noqa: E402
 SCATTERED = {f"m{i}.py": f'p = Path("records/a{i}.jsonl")\n' for i in range(5)}
 
 
-@pytest.mark.xfail(strict=True, reason="#12")
 def test_an_ancestor_named_like_build_output_does_not_hide_the_project(
         tmp_path) -> None:
     """The walk matched skip names against the ABSOLUTE path. A project
@@ -398,7 +397,6 @@ def test_an_ancestor_named_like_build_output_does_not_hide_the_project(
     assert any("5 files" in f.summary for f in findings(root)), findings(root)
 
 
-@pytest.mark.xfail(strict=True, reason="#12")
 def test_an_ancestor_named_tests_does_not_make_every_file_a_test(
         tmp_path) -> None:
     root = project(tmp_path / "tests" / "proj", SCATTERED)

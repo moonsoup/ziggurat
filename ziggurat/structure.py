@@ -276,8 +276,26 @@ def _code_only(path: Path, text: str, strip_strings: bool = False) -> str:
     return "\n".join(line for n, line in enumerate(lines, 1) if n not in drop)
 
 
-def _is_test(path: Path) -> bool:
-    parts = {p.lower() for p in path.parts}
+def _inside(path: Path, root) -> Path:
+    """The path as the PROJECT sees it.
+
+    Every folder-name rule here -- skip it, it is a test, it is an entry
+    point -- is a statement about the project's own layout. Matched against
+    the absolute path, it was a statement about wherever the project happened
+    to be checked out: a project under any `build/` scanned nothing and said
+    "nothing found", one under any `tests/` had no source at all, and a
+    library under any `tools/` was eight entry points. (#12)
+    """
+    if root is None:
+        return path
+    try:
+        return path.relative_to(root)
+    except ValueError:
+        return path
+
+
+def _is_test(path: Path, root=None) -> bool:
+    parts = {p.lower() for p in _inside(path, root).parts}
     if parts & {"tests", "test", "spec"}:
         return True
     name = path.name
@@ -337,9 +355,9 @@ def _sources(root: Path):
     for path in root.rglob("*"):
         if not path.is_file() or path.suffix not in SOURCE_SUFFIXES:
             continue
-        if set(path.parts) & SKIP_DIRS:
+        parts = _inside(path, root).parts
+        if set(parts) & SKIP_DIRS:
             continue
-        parts = path.parts
         if any(any(parts[i:i + len(run)] == run
                    for i in range(len(parts) - len(run) + 1))
                for run in SKIP_PATHS):
@@ -403,8 +421,8 @@ def _is_shim(path: Path) -> bool:
 
 def _entry_points(root: Path, files: list, report: Report) -> None:
     entries = [f for f in files
-               if any(part in ENTRY_DIRS for part in f.parts)
-               and not _is_test(f) and not _is_shim(f)]
+               if any(part in ENTRY_DIRS for part in _inside(f, root).parts)
+               and not _is_test(f, root) and not _is_shim(f)]
     if len(entries) < SPRAWL_AT:
         return
     report.add(Finding(
@@ -426,7 +444,7 @@ def _entry_points(root: Path, files: list, report: Report) -> None:
 def _dynamic_loading(files: list, root: Path, report: Report) -> None:
     hits = []
     for path in files:
-        if _is_test(path):
+        if _is_test(path, root):
             continue
         try:
             text = path.read_text(errors="replace")
@@ -847,7 +865,7 @@ def _scattered_paths(files: list, root: Path, report: Report) -> None:
     names_under: dict = {}
 
     for path in files:
-        if _is_test(path) or _is_config(path):
+        if _is_test(path, root) or _is_config(path):
             continue
         try:
             text = path.read_text(errors="replace")
@@ -914,7 +932,7 @@ def _scattered_paths(files: list, root: Path, report: Report) -> None:
     promotable = {h for h in by_head
                   if any(name != h for name in names_under.get(h, ()))}
     for path in files:
-        if _is_test(path) or _is_config(path) or path.suffix != ".py":
+        if _is_test(path, root) or _is_config(path) or path.suffix != ".py":
             continue
         try:
             bare = _python_bare_strings(path.read_text(errors="replace"))
@@ -981,7 +999,7 @@ def _scattered_paths(files: list, root: Path, report: Report) -> None:
 def _scattered_constants(files: list, root: Path, report: Report) -> None:
     where: dict = {}
     for path in files:
-        if _is_test(path) or _is_config(path):
+        if _is_test(path, root) or _is_config(path):
             continue
         try:
             text = path.read_text(errors="replace")
@@ -1130,7 +1148,7 @@ def _sibling_from_global(files: list, root: Path, report: Report) -> None:
     path. It becomes wrong the moment one is passed and ignored.
     """
     for path in files:
-        if path.suffix != ".py" or _is_test(path) or _is_config(path):
+        if path.suffix != ".py" or _is_test(path, root) or _is_config(path):
             continue
         try:
             tree = ast.parse(path.read_text(errors="replace"))
@@ -1230,7 +1248,7 @@ def config_scalars(files: list, root: Path) -> dict:
     """
     found: dict = {}
     for path in files:
-        if not _is_config(path) or _is_test(path):
+        if not _is_config(path) or _is_test(path, root):
             continue
         try:
             tree = ast.parse(path.read_text(errors="replace"))
@@ -1268,7 +1286,7 @@ def scalar_readers(files: list, root: Path, names: set) -> dict:
     """
     where: dict = {name: set() for name in names}
     for path in files:
-        if _is_config(path) or _is_test(path):
+        if _is_config(path) or _is_test(path, root):
             continue
         try:
             tree = ast.parse(path.read_text(errors="replace"))
@@ -1299,7 +1317,7 @@ def collections_of(files: list, root: Path) -> list:
     classes: dict = {}
     containers: dict = {}
     for path in files:
-        if _is_test(path):
+        if _is_test(path, root):
             continue
         try:
             tree = ast.parse(path.read_text(errors="replace"))
@@ -1386,7 +1404,7 @@ def scalar_defaults(files: list, root: Path) -> dict:
     """What each config scalar defaults to, by name."""
     out: dict = {}
     for path in files:
-        if not _is_config(path) or _is_test(path):
+        if not _is_config(path) or _is_test(path, root):
             continue
         try:
             tree = ast.parse(path.read_text(errors="replace"))
@@ -1405,7 +1423,7 @@ def field_defaults(files: list, root: Path) -> dict:
     """What each class field defaults to, keyed by (class, field)."""
     out: dict = {}
     for path in files:
-        if _is_test(path):
+        if _is_test(path, root):
             continue
         try:
             tree = ast.parse(path.read_text(errors="replace"))

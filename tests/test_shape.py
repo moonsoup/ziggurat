@@ -256,7 +256,6 @@ def test_the_names_only_fingerprint_is_still_available(tmp_path) -> None:
     assert "shape unchanged" in _drift(root, state, "--names-only")
 
 
-@pytest.mark.xfail(strict=True, reason="#12")
 def test_an_ancestor_named_build_does_not_empty_the_shape(tmp_path) -> None:
     root = project(tmp_path / "build" / "proj", {"a.py": "x = 1\n"})
     assert shape.shape(root)["modules"], "the whole project was skipped"

@@ -16,7 +16,7 @@ Baseline sweep: 992db24, 45 projects under `~/Software`.
 
 | item | state | issue | evidence |
 |---|---|---|---|
-| Folder-name rules (skip / test / entry-point / shape) match the path inside the project, not the absolute path | [broken] | #12 | project under `build/` ancestor → `[]`; under `tests/` → `[]`; library under `tools/` → `8 separate entry points` |
+| Folder-name rules (skip / test / entry-point / shape) match the path inside the project, not the absolute path | [fixed] | #12 | was: under `build/` → `[]`, under `tests/` → `[]`, library under `tools/` → `8 separate entry points`. 2026-09-17: oligolia cloned under `build/` scanned 0 (c54fea6) → 122 (fix), same as its real checkout; 45-project sweep unchanged apart from ziggurat's own history |
 | A report says how many source files it read | [broken] | #13 | render over 3 files and over 0 both say only `nothing found` |
 | Tracked source under a build-output-named directory is scanned | [broken] | #14 | `scanned` 0 of 5 tracked `build/hooks/*.py`; oligolia's 4 tracked `build/` files unscanned |
 | Module-qualified path calls (`os.makedirs`, `os.path.*`, `shutil.*`, `pathlib.Path`, aliases) | [broken] | #15 | 5 files each → `[]`; bare `Path("outputs")` control → found |
