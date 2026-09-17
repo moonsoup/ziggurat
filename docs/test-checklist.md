@@ -62,3 +62,4 @@ records each commit and count, because uncommitted files are part of what Ziggur
 
 | the committed evidence is the execution record, not a summary | [fixed] | rockin-robin#20, found by Codex: only the verdict had been committed. `docs/equivalence/run-change-coupling/` now holds ledger + runs + verdict (28K, output digested not embedded) |
 | a claim over zero subjects cannot verify | [fixed] | rockin-robin#20: an empty subject list reported `verified: true`; now a finding and exit 1 |
+| the custody ledger verifies under its key | [fixed] | was unverifiable: `ledger verify --path` recursed until the interpreter gave up (mEllergrace/stop-guessing#94, fixed test-first in 92208b2 and patched into the vendored 0.6.1 copy). 2026-09-17: `PASS: 492 records, chain intact and verified under its key`; oligolia's 1033 records also PASS. LOG-10 still answers No, for write-protection and access, not for verifiability |

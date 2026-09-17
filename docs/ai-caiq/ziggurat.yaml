@@ -136,22 +136,29 @@ answers:
   implementation: >
     The tool keeps no audit log of its own. WHAT DOES EXIST: a hash-chained custody ledger
     written by a separate tool (stop-guessing) into `.stop-guessing/ledger/custody.jsonl`,
-    492 records, tracked in git, each record naming a keyid for an HMAC-SHA256 chain. Two
-    things stop that being an answer of Yes here, and both are recorded rather than
-    smoothed over: keyed verification could not be run in this environment (the chain key
-    is not available to the assessor, and the keyless mode reports honestly as "chain-only,
-    never tamper-proof"), and `stop-guessing ledger verify --path <file>` crashes with a
-    RecursionError, so a specific project's ledger cannot be verified at all today. The
-    ledger is also tamper-EVIDENT, not write-protected: an attacker with the repo can
-    rewrite history, and only the chain would show it.
+    492 records, tracked in git, HMAC-SHA256 under a named keyid -- and as of 2026-09-17 it
+    verifies: "PASS: 492 records, chain intact and verified under its key". Getting that
+    answer required fixing the verifier first (mEllergrace/stop-guessing#94 defect 1, fixed
+    in 92208b2): `ledger verify --path` recursed until the interpreter gave up, so no
+    per-project ledger could be verified at all. The answer stays No for a better reason
+    than an earlier draft gave: the ledger is tamper-EVIDENT, not write-protected. Anyone
+    with the repository can rewrite it and only the chain would show it, access to the
+    records is not restricted (they are committed to a public repo), and three further
+    defects in the verification surface are still open -- `doctor` and `verify` disagree
+    about the same profile, the keyed failure message asserts tampering it has not
+    established, and `claims check` crashes on a vendored install.
   evidence:
   - type: test-run
-    ref: 'stop-guessing ledger verify --public  ->  PARTIAL: chain shape intact but keyed verification unavailable'
-    observed: honest degradation; the tool refuses to call chain-only verification tamper-proof
+    ref: "ledger verify --path .stop-guessing/ledger/custody.jsonl --keyfile <key>  ->  PASS: 492 records, chain intact and verified under its key"
+    observed: keyed verification passes, after fixing the verifier (stop-guessing#94, 92208b2)
     date: 2026-09-17
   - type: test-run
-    ref: 'stop-guessing ledger verify --path <project ledger>  ->  RecursionError (cli/cmd_ledger.py:22, _path calls itself)'
-    observed: the per-project ledger cannot be verified; reported to the owner
+    ref: "the same command with --public  ->  PARTIAL: 492 records, chain shape intact but keyed verification unavailable"
+    observed: honest degradation; the tool refuses to call chain-only verification tamper-proof
+    date: 2026-09-17
+  - type: artifact
+    ref: "gh issue view 94 -R mEllergrace/stop-guessing"
+    observed: three verification defects still open; why this is No rather than Yes
     date: 2026-09-17
 
 # ---------------------------------------------------------------- supply chain
