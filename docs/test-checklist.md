@@ -63,3 +63,12 @@ records each commit and count, because uncommitted files are part of what Ziggur
 | the committed evidence is the execution record, not a summary | [fixed] | rockin-robin#20, found by Codex: only the verdict had been committed. `docs/equivalence/run-change-coupling/` now holds ledger + runs + verdict (28K, output digested not embedded) |
 | a claim over zero subjects cannot verify | [fixed] | rockin-robin#20: an empty subject list reported `verified: true`; now a finding and exit 1 |
 | the custody ledger verifies under its key | [fixed] | was unverifiable: `ledger verify --path` recursed until the interpreter gave up (mEllergrace/stop-guessing#94, fixed test-first in 92208b2 and patched into the vendored 0.6.1 copy). 2026-09-17: `PASS: 492 records, chain intact and verified under its key`; oligolia's 1033 records also PASS. LOG-10 still answers No, for write-protection and access, not for verifiability |
+
+### Codex's toolchain + repo review (msg_011)
+
+| item | state | evidence |
+|---|---|---|
+| agent/tool state is not a project file | [fixed] | #30: this repo's own report named `.stop-guessing/state/*.json` for a week (tracked, so git-ignore did not remove it; `.jsonl` was filtered and `.json` was not) and the author filtered those lines by hand in every sweep rather than fixing the cause. Now filtered in history and skipped in the walk; the report shows a genuine pair instead |
+| nothing nobody authored changes a finding | [fixed] | new `tests/test_not_the_project.py` asserts the CLASS: tool state, an index, caches, a worktree, a vendored tree, committed `dist/` chunks and a minified bundle added to a project leave its findings identical. Two of its first fixtures passed VACUOUSLY (6 commits, below history's 8-commit minimum) and were corrected to fail first |
+| a committed bundle is not the project | [fixed] | #14 briefly deferred `dist`/`target`/`coverage` to git alongside `build/`; the class fixture showed five committed webpack chunks becoming a finding. Only `build/` defers now (hand-written build scripts live there) |
+| a minified bundle is skipped by content, not by name | [fixed] | no directory-name list catches oligolia's `structure_viewer/assets/3Dmol-min.js` (moonsoup/spindlebox#33); a `.js`/`.ts`/`.css` file with a line over 2000 chars is generated |

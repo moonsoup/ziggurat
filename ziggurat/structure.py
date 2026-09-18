@@ -42,6 +42,10 @@ SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist",
              # twelve more -- none of them anybody's source.
              ".next", ".nuxt", ".svelte-kit", ".turbo", ".parcel-cache",
              ".cache", "coverage", ".gradle", ".terraform",
+             # Agent and tool state, including a vendored runtime that ships
+             # .py files. Never the project's own code, tracked or not (#30).
+             ".stop-guessing", ".spi", ".sca", ".ruff_cache", ".pytest_cache",
+             ".mypy_cache",
              # A git worktree is a full second copy of the repo. Counting it
              # doubled every file, which put ALL SEVEN of one project's
              # scattered-path findings over the threshold -- their real counts
@@ -69,7 +73,12 @@ SKIP_PATHS = ((".claude", "worktrees"),)
 #: cannot answer, the name is all there is and they are skipped as before.
 #: Everything else in SKIP_DIRS is somebody else's code or a tool's cache,
 #: and is skipped whatever git says.
-OUTPUT_DIRS = frozenset({"build", "dist", "target", "coverage"})
+#: `dist`, `target` and `coverage` were briefly here too (#14) and are not: a
+#: project that COMMITS its bundle -- a JS action, a published wheel -- would
+#: have generated code read as its own, and five chunks sharing a path is a
+#: finding about webpack. `build/` earns the exception because hand-written
+#: build scripts live there; nothing hand-written lives in `dist/`.
+OUTPUT_DIRS = frozenset({"build"})
 
 SOURCE_SUFFIXES = {".py", ".sh", ".js", ".ts", ".rb", ".go", ".java", ".kt",
                    ".c", ".h"}
@@ -394,6 +403,29 @@ def _tracked_output(root: Path) -> set:
             if set(Path(n).parts) & OUTPUT_DIRS}
 
 
+#: Beyond this, a single line is not something a person wrote. A minified bundle
+#: is one enormous line of somebody else's code, and its literals are read by the
+#: regex pass like any other -- `.next/` chunks once produced `/robots.txt` across
+#: twelve files. Skipping by NAME only works for the bundlers whose directory
+#: names are known; oligolia keeps a 3Dmol build at `structure_viewer/assets/`,
+#: which no name list would catch (moonsoup/spindlebox#33).
+GENERATED_LINE_LENGTH = 2000
+
+
+def _is_minified(path: Path) -> bool:
+    """One very long line, no indentation to speak of: a generated bundle."""
+    if path.suffix not in (".js", ".ts", ".css"):
+        return False
+    try:
+        with path.open(encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                if len(line) > GENERATED_LINE_LENGTH:
+                    return True
+    except OSError:
+        return False
+    return False
+
+
 def _sources(root: Path):
     ignored = _ignored(root)
     # Only asked when git can answer for THIS tree; see `_ignored`.
@@ -416,6 +448,8 @@ def _sources(root: Path):
         # checked rather than the leaf.
         here = path.resolve()
         if here in ignored or any(p in ignored for p in here.parents):
+            continue
+        if _is_minified(path):
             continue
         yield path
 

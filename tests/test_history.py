@@ -221,3 +221,30 @@ def test_the_readable_report_says_how_many_it_did_not_list(tmp_path):
     assert "and 5 more change-coupling findings not listed" in text
     assert f"pair {SHOWN_PER_CHECK + 4}" in report.render(full=True)
     assert len(report.as_dict()["findings"]) == SHOWN_PER_CHECK + 5
+
+
+def test_agent_tool_state_is_not_a_project_file(tmp_path):
+    """#30. `.stop-guessing/state/*.json` is written by a custody tool on every
+    agent action, so it co-changes with whatever was being edited. It is tracked
+    in git here, so the ignore filter does not remove it, and `.jsonl` was
+    filtered while `.json` was not -- so this project's own coupling report
+    named a tool state file for a week, and the author filtered those lines by
+    hand in every comparison. That is the noise that gets a checker switched
+    off, reached by its author."""
+    repo(tmp_path)
+    for i in range(10):          # >= MIN_SHARED * 2, or history is skipped entirely
+        commit(tmp_path, {"a.py": f"x = {i}\n",
+                          ".stop-guessing/state/8159588e.df5dd269.json": f'{{"n": {i}}}\n',
+                          ".stop-guessing/ledger/custody.jsonl": f'{{"seq": {i}}}\n'}, f"work {i}")
+    named = " ".join(f.summary for f in history.analyse(tmp_path).findings)
+    assert ".stop-guessing" not in named, named
+
+
+def test_the_index_and_tool_caches_are_not_project_files(tmp_path):
+    repo(tmp_path)
+    for i in range(10):
+        commit(tmp_path, {"a.py": f"x = {i}\n",
+                          ".spi/index.json": f'{{"n": {i}}}\n',
+                          ".ruff_cache/0.1.2/x": f"{i}\n"}, f"work {i}")
+    named = " ".join(f.summary for f in history.analyse(tmp_path).findings)
+    assert ".spi" not in named and ".ruff_cache" not in named, named

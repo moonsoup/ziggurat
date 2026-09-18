@@ -360,14 +360,29 @@ def test_looking_at_nothing_is_said_not_implied(tmp_path):
     assert "0 source files" in text, text
 
 
-@pytest.mark.parametrize("name", ["build", "dist", "target", "coverage"])
-def test_tracked_source_under_every_output_name_is_scanned(tmp_path, name):
-    """Codex: the #14 test proved `build/` alone of the four names."""
+def test_tracked_source_under_build_is_scanned(tmp_path):
+    """`build/` defers to git because hand-written build scripts live there --
+    oligolia keeps its PyInstaller hooks in `build/hooks/` (#14)."""
     for i in range(5):
-        write(tmp_path, f"{name}/hooks/hook{i}.py", "x = 1\n")
+        write(tmp_path, f"build/hooks/hook{i}.py", "x = 1\n")
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     subprocess.run(["git", "add", "-A", "-f"], cwd=tmp_path, check=True)
     assert structure.analyse(tmp_path).scanned == 5
+
+
+@pytest.mark.parametrize("name", ["dist", "target", "coverage"])
+def test_a_committed_bundle_is_still_not_the_project(tmp_path, name):
+    """These were briefly deferred to git alongside `build/` (#14), and that was
+    wrong for the opposite reason: a project that COMMITS its bundle -- a JS
+    action, a published wheel -- would have generated code read as its own, and
+    five chunks sharing a path is a finding about webpack. Nothing hand-written
+    lives in `dist/`; found by the not-the-project class fixture (#30)."""
+    write(tmp_path, "m.py", "x = 1\n")
+    for i in range(5):
+        write(tmp_path, f"{name}/chunk{i}.js", f'a = "/public/robots{i}.txt"\n')
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "-A", "-f"], cwd=tmp_path, check=True)
+    assert structure.analyse(tmp_path).scanned == 1
 
 
 def test_tracked_source_under_a_build_named_directory_is_scanned(tmp_path):

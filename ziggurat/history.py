@@ -41,7 +41,15 @@ MAX_COMMITS = 2000
 #: the time -- true, trivially, and architecturally silent. Coupling between
 #: two outputs of one build step is a fact about the build step.
 GENERATED_DIRS = {"build", "dist", "target", "out", "node_modules", ".venv",
-                  "venv", "__pycache__", "vendor", "coverage", ".tox"}
+                  "venv", "__pycache__", "vendor", "coverage", ".tox",
+                  # AGENT AND TOOL STATE. Written on every action, so it
+                  # co-changes with whatever was being edited -- and it is often
+                  # TRACKED, so asking git what is ignored does not remove it.
+                  # This project's own report named `.stop-guessing/state/*.json`
+                  # for a week and the author filtered those lines by hand in
+                  # every comparison rather than fixing the cause (#30).
+                  ".stop-guessing", ".spi", ".sca", ".ruff_cache",
+                  ".pytest_cache", ".mypy_cache", ".cache"}
 
 #: Extensions that are never authored by hand.
 #: Files that every release touches by process rather than by design. In a real
