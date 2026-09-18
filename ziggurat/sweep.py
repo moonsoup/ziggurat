@@ -50,6 +50,19 @@ def _said(record: dict) -> dict:
             for f in record.get("findings", [])}
 
 
+def _skipped(record: dict) -> set:
+    """Checks that could not run, as lines. A change here is a change in what
+    was LOOKED AT, which `compare` was blind to (#28) -- so a fix that made a
+    check start or stop running read as no change at all."""
+    return {f"{e.get('check')}: {e.get('why')}" for e in record.get("skipped", [])}
+
+
+def _quiet(record: dict) -> set:
+    """Inconclusive observations, by name. They are rendered to the reader, so
+    a change in them is a change in the report."""
+    return {str(item.get("name", item)) for item in record.get("quiet", [])}
+
+
 def compare(before, after, sites: bool = False) -> list:
     """What a change to the checker changed about what it says.
 
@@ -95,6 +108,13 @@ def compare(before, after, sites: bool = False) -> list:
             if sites:
                 body.extend(f"      - {where}" for where in lost)
                 body.extend(f"      + {where}" for where in gained)
+        for mark, gone, kept in (("-", _skipped(was), _skipped(now)),
+                                 ("+", _skipped(now), _skipped(was))):
+            body.extend(f"  {mark} [skip] {line}" for line in sorted(gone - kept))
+        for mark, gone, kept in (("-", _quiet(was), _quiet(now)),
+                                 ("+", _quiet(now), _quiet(was))):
+            body.extend(f"  {mark} [quiet] {name}" for name in sorted(gone - kept))
+
         if body:
             lines.append(name)
             lines.extend(body)

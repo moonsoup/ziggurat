@@ -169,3 +169,53 @@ def test_compare_sees_a_finding_whose_sites_changed_under_one_summary(
     lines = sweep.compare(before, after, sites=True)
     assert any("x appears in 4 files" in line for line in lines), lines
     assert "      - d.py" in lines and "      + e.py" in lines, lines
+
+
+def _full(out: Path, name: str, findings=(), skipped=(), quiet=(), scanned=3) -> None:
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"{name}.json").write_text(json.dumps({
+        "project": name, "scanned": scanned,
+        "findings": [{"check": c, "summary": s, "paths": []} for c, s in findings],
+        "skipped": [{"check": c, "why": w} for c, w in skipped],
+        "quiet": [{"name": n} for n in quiet]}))
+
+
+def test_a_check_that_stops_running_is_a_change(tmp_path) -> None:
+    """#28. `compare` diffed findings and their sites and ignored `skipped`, so a
+    change that made a check START or STOP running compared as no change at all
+    -- the verifier blind to the difference between "found nothing" and "did not
+    look", which is the thing the schema carries `skipped` for."""
+    before, after = tmp_path / "before", tmp_path / "after"
+    _full(before, "alpha", skipped=[("change-coupling", "alpha is not a git repository")])
+    _full(after, "alpha")
+
+    lines = sweep.compare(before, after)
+
+    assert any("change-coupling" in line and "not a git repository" in line
+               for line in lines), lines
+
+
+def test_a_check_that_starts_being_skipped_is_a_change(tmp_path) -> None:
+    before, after = tmp_path / "before", tmp_path / "after"
+    _full(before, "alpha")
+    _full(after, "alpha", skipped=[("structure", "MemoryError: ...")])
+    lines = sweep.compare(before, after)
+    assert any("MemoryError" in line for line in lines), lines
+
+
+def test_an_inconclusive_observation_appearing_is_a_change(tmp_path) -> None:
+    """`quiet` is rendered to the reader, so a change in it is a change in the
+    report."""
+    before, after = tmp_path / "before", tmp_path / "after"
+    _full(before, "alpha", quiet=["host"])
+    _full(after, "alpha", quiet=["host", "port"])
+    lines = sweep.compare(before, after)
+    assert any("port" in line for line in lines), lines
+
+
+def test_identical_reports_with_skips_and_quiet_are_still_silent(tmp_path) -> None:
+    before, after = tmp_path / "before", tmp_path / "after"
+    for out in (before, after):
+        _full(out, "alpha", findings=[("x", "y")],
+              skipped=[("change-coupling", "too short")], quiet=["host"])
+    assert sweep.compare(before, after) == []
